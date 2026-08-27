@@ -361,6 +361,13 @@ Exit codes: `0` success, `1` guard abort or user declined, `2` trash failures oc
 
 `plan_test.go` carries the regression test that matters: a temp-directory fixture with
 files created in NFD and a collection referencing them in NFC, asserting **zero orphans**.
+
+Every such test writes the two names as `\\u` escapes and first asserts they really are
+different byte sequences. That is not defensive padding: the equivalent test in
+`fileid_test.go` was first written with two byte-identical literals, so it statted one path
+twice, compared a `FileID` to itself, and **passed while proving nothing**. Spelled as
+literal accented characters the two forms are indistinguishable in an editor. A vacuous test
+here would conceal precisely the failure that deletes 155 in-library files.
 That is the observed real-world direction and the guard against the 155-file bug. The
 reverse direction (NFD in the collection, NFC on disk) is also tested, defensively — it
 does not occur in the current export, but nothing guarantees rekordbox will not emit it.
