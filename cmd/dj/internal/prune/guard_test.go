@@ -1,0 +1,213 @@
+package prune
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+)
+
+// healthyPlan is a plan that trips no guard, so each test can break exactly one
+// thing.
+func healthyPlan() *Plan {
+	p := &Plan{
+		MusicDir:   "/Users/aron/DJ/music",
+		Library:    make(map[FileID][]string),
+		StaleDupes: make(map[string]int),
+		Keepers:    8355,
+		Orphans:    make([]string, 6657),
+	}
+	for i := range 8355 {
+		p.Library[FileID{Dev: 1, Ino: uint64(i + 1)}] = []string{"/x"}
+	}
+	return p
+}
+
+func healthyCollection() *rekordbox.Collection {
+	return &rekordbox.Collection{
+		HasCollection:   true,
+		HasPlaylists:    true,
+		DeclaredEntries: 8617,
+		Tracks:          make([]rekordbox.Track, 8617),
+	}
+}
+
+func defaultGuardOptions() GuardOptions {
+	return GuardOptions{
+		MaxOrphanPct: DefaultMaxOrphanPct,
+		MinLibrary:   DefaultMinLibrary,
+	}
+}
+
+func findingsText(f []Finding) string {
+	var b strings.Builder
+	for _, x := range f {
+		b.WriteString(x.Message)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func TestCheckHealthyPlanHasNoAborts(t *testing.T) {
+	f := Check(healthyPlan(), healthyCollection(), defaultGuardOptions())
+	if Aborts(f) {
+		t.Errorf("Aborts = true for a healthy plan:\n%s", findingsText(f))
+	}
+}
+
+func TestCheckAborts(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Plan, *rekordbox.Collection, *GuardOptions)
+		wantSub string
+	}{
+		{
+			name: "no collection element",
+			mutate: func(_ *Plan, c *rekordbox.Collection, _ *GuardOptions) {
+				c.HasCollection = false
+			},
+			wantSub: "no COLLECTION element",
+		},
+		{
+			name: "zero tracks",
+			mutate: func(_ *Plan, c *rekordbox.Collection, _ *GuardOptions) {
+				c.Tracks = nil
+				c.DeclaredEntries = 0
+			},
+			wantSub: "zero tracks",
+		},
+		{
+			name: "truncated export",
+			mutate: func(_ *Plan, c *rekordbox.Collection, _ *GuardOptions) {
+				c.Tracks = make([]rekordbox.Track, 400)
+			},
+			wantSub: "truncated export",
+		},
+		{
+			name: "no playlists element",
+			mutate: func(_ *Plan, c *rekordbox.Collection, _ *GuardOptions) {
+				c.HasPlaylists = false
+			},
+			wantSub: "no PLAYLISTS element",
+		},
+		{
+			name: "library too small",
+			mutate: func(p *Plan, _ *rekordbox.Collection, _ *GuardOptions) {
+				p.Library = map[FileID][]string{{Dev: 1, Ino: 1}: {"/x"}}
+				p.Keepers = 1
+			},
+			wantSub: "looks like a playlist export",
+		},
+		{
+			name: "orphan share above limit",
+			mutate: func(p *Plan, _ *rekordbox.Collection, _ *GuardOptions) {
+				p.Keepers = 1000
+				p.Orphans = make([]string, 9000)
+			},
+			wantSub: "above the 60% limit",
+		},
+		{
+			name: "unresolved stat error",
+			mutate: func(p *Plan, _ *rekordbox.Collection, _ *GuardOptions) {
+				p.Unresolved = []error{errors.New("permission denied")}
+			},
+			wantSub: "library set is incomplete",
+		},
+		{
+			// A systemic decoding failure would quietly shrink the library and
+			// inflate the orphan list rather than erroring anywhere.
+			name: "too many undecodable locations",
+			mutate: func(p *Plan, _ *rekordbox.Collection, _ *GuardOptions) {
+				p.NonFile = maxNonFileEntries + 1
+			},
+			wantSub: "Location format may have changed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, c, opts := healthyPlan(), healthyCollection(), defaultGuardOptions()
+			tt.mutate(p, c, &opts)
+
+			f := Check(p, c, opts)
+			if !Aborts(f) {
+				t.Fatalf("Aborts = false, want true:\n%s", findingsText(f))
+			}
+			if got := findingsText(f); !strings.Contains(got, tt.wantSub) {
+				t.Errorf("findings do not mention %q:\n%s", tt.wantSub, got)
+			}
+		})
+	}
+}
+
+func TestCheckWarnings(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Plan, *GuardOptions)
+		wantSub string
+	}{
+		{
+			name: "audio added after the export was skipped",
+			mutate: func(p *Plan, _ *GuardOptions) {
+				p.RecentlyAdded = []string{"/m/A2026-08/just-downloaded.mp3"}
+			},
+			wantSub: "skipped rather than trashed",
+		},
+		{
+			name: "case duplicates",
+			mutate: func(p *Plan, _ *GuardOptions) {
+				p.CaseDupes = [][]string{{"/a.mp3", "/A.mp3"}}
+			},
+			wantSub: "differing only in case",
+		},
+		{
+			name: "stale duplicates",
+			mutate: func(p *Plan, _ *GuardOptions) {
+				p.StaleDupes = map[string]int{"e:/music/a.mp3": 6}
+			},
+			wantSub: "stale Windows paths",
+		},
+		{
+			name: "dead links",
+			mutate: func(p *Plan, _ *GuardOptions) {
+				p.DeadLinks = []string{"/Users/aron/DJ/music/A2026-05/gone.mp3"}
+			},
+			wantSub: "no longer exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, opts := healthyPlan(), defaultGuardOptions()
+			tt.mutate(p, &opts)
+
+			f := Check(p, healthyCollection(), opts)
+			if Aborts(f) {
+				t.Errorf("Aborts = true, want warning only:\n%s", findingsText(f))
+			}
+			if got := findingsText(f); !strings.Contains(got, tt.wantSub) {
+				t.Errorf("findings do not mention %q:\n%s", tt.wantSub, got)
+			}
+		})
+	}
+}
+
+// The reference collection's first run is 44.3% orphaned, which must clear the
+// 60% default rather than needing --force.
+func TestCheckReferenceCollectionClearsOrphanLimit(t *testing.T) {
+	f := Check(healthyPlan(), healthyCollection(), defaultGuardOptions())
+	if got := findingsText(f); strings.Contains(got, "limit") {
+		t.Errorf("orphan limit tripped at 44.3%%:\n%s", got)
+	}
+}
+
+func TestCheckNoAudioOnDiskDoesNotDivideByZero(t *testing.T) {
+	p := healthyPlan()
+	p.Keepers = 0
+	p.Orphans = nil
+	if got := p.OrphanPct(); got != 0 {
+		t.Errorf("OrphanPct() = %v, want 0", got)
+	}
+	Check(p, healthyCollection(), defaultGuardOptions()) // must not panic
+}
