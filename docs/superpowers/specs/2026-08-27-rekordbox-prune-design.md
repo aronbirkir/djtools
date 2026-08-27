@@ -412,13 +412,21 @@ build-tagged test (`-tags realdata`) asserts what cannot drift without a real bu
 - **No orphan is newer than the export.**
 - The resolved library clears the playlist-export floor.
 
-Absolute figures are logged for comparison against this baseline, measured 2026-08-27:
+Absolute figures are logged for comparison against this baseline, re-measured against a
+fresh export on 2026-08-27 at 22:42 (8,636 entries):
 
 ```
-library=8355  keepers=8355  orphans=6657  skipped=7  deadlinks=4
+library=8374  keepers=8374  orphans=6645  skipped=0  deadlinks=4
 stalepaths=94 staledupes=30 casedupes=8   foreign=8  nonfile=2
-leftovers=35  symlinks=0    ondisk=15019  pct=44.3%  reclaim=35.9 GB
+leftovers=35  symlinks=0    ondisk=15019  pct=44.2%  reclaim=35.7 GB
 ```
+
+The earlier 17:35 export gave `library=8355 orphans=6657 skipped=7`. The difference is
+instructive rather than noise: 19 tracks were imported between the two exports — the 7 files
+that had been skipped as newer-than-export, plus 12 already on disk that were re-added to the
+library. Keepers rose by 19, orphans fell by 12, and `ondisk` held at 15,019 throughout.
+Both invariants held across the change, which is the useful signal; the absolute numbers will
+keep moving.
 
 Pinning these as assertions was the original plan and was wrong: they would fail on every
 download, training whoever runs the test to ignore red.
