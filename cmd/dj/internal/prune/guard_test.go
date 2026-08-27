@@ -211,3 +211,77 @@ func TestCheckNoAudioOnDiskDoesNotDivideByZero(t *testing.T) {
 	}
 	Check(p, healthyCollection(), defaultGuardOptions()) // must not panic
 }
+
+func TestFindingUnforceable(t *testing.T) {
+	if !(Finding{Code: CodeUnresolved}).Unforceable() {
+		t.Error("an unresolved library path must not be forceable")
+	}
+	for _, c := range []Code{CodeOrphanShare, CodeTruncatedExport, CodeDeadLinks} {
+		if (Finding{Code: c}).Unforceable() {
+			t.Errorf("%s should be forceable", c)
+		}
+	}
+}
+
+func TestNonFileLimitScalesWithCollectionSize(t *testing.T) {
+	for _, tt := range []struct {
+		entries int
+		want    int
+	}{
+		{0, 5},      // floor
+		{100, 5},    // floor
+		{500, 5},    // 1% = 5
+		{2000, 20},  // proportional
+		{8636, 50},  // ceiling, the reference collection
+		{50000, 50}, // ceiling
+	} {
+		if got := nonFileLimit(tt.entries); got != tt.want {
+			t.Errorf("nonFileLimit(%d) = %d, want %d", tt.entries, got, tt.want)
+		}
+	}
+}
+
+func TestAbortsWithNoFindings(t *testing.T) {
+	if Aborts(nil) {
+		t.Error("Aborts(nil) = true, want false")
+	}
+	if Aborts([]Finding{}) {
+		t.Error("Aborts(empty) = true, want false")
+	}
+}
+
+// Check must collect every abort rather than returning at the first. A future
+// early return would pass every single-condition test above while hiding the
+// rest of what is wrong with an export.
+func TestCheckReportsAllSimultaneousAborts(t *testing.T) {
+	p, c, opts := healthyPlan(), healthyCollection(), defaultGuardOptions()
+	c.HasPlaylists = false
+	p.Unresolved = []error{errors.New("permission denied")}
+
+	var aborts int
+	for _, f := range Check(p, c, opts) {
+		if f.Level == LevelAbort {
+			aborts++
+		}
+	}
+	if aborts < 2 {
+		t.Fatalf("got %d aborts, want at least 2: Check must not short-circuit", aborts)
+	}
+}
+
+// Aborts are the reason a run stops, so they must be readable first.
+func TestCheckAbortsPrecedeWarnings(t *testing.T) {
+	p, c, opts := healthyPlan(), healthyCollection(), defaultGuardOptions()
+	c.HasPlaylists = false
+	p.DeadLinks = []string{"/m/A2026-05/gone.mp3"}
+
+	var seenWarn bool
+	for _, f := range Check(p, c, opts) {
+		if f.Level == LevelWarn {
+			seenWarn = true
+		}
+		if f.Level == LevelAbort && seenWarn {
+			t.Fatal("an abort finding appeared after a warning finding")
+		}
+	}
+}
