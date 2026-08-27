@@ -170,7 +170,7 @@ djtools/
     command.go                                 flag parsing, orchestration
     fileid.go                                  FileID type, portable
     fileid_unix.go                             (dev, ino) via syscall.Stat_t
-    fileid_windows.go                          unsupported stub, refuses early
+    fileid_unsupported.go                      stub that refuses early (!unix)
     fileid_test.go
     plan.go                                    file-id index -> Plan
     plan_test.go
