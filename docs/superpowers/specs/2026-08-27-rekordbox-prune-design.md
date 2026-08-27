@@ -16,7 +16,7 @@ Measured state as of 2026-08-27, using the inode-matching algorithm this spec de
 | Audio files under `music/` | 15,012 (136 GB), all `.mp3` |
 | `<TRACK>` entries in `rekordbox.xml` | 8,617 |
 | — resolving under `music/` | 8,367 |
-| — stale Windows paths (`e:/`, `E:/`, `C:/`) | 240 |
+| — stale Windows paths (`e:/`, `E:/`, `C:/`) | 240 entries, 94 unique paths (30 repeat, up to 6× each) |
 | — outside `music/` (rekordbox Sampler `.wav`) | 8 |
 | — not files at all (`tidal:`) | 2 |
 | Library entries that stat successfully | 8,363 |
@@ -240,6 +240,7 @@ type FileID struct{ Dev, Ino uint64 }
 type Plan struct {
     Library    map[FileID][]string // resolved library files -> every path spelling
     Orphans    []string            // audio on disk, absent from Library
+    RecentlyAdded []string         // absent from Library but newer than the export
     Keepers    int
     DeadLinks  []string            // KindLocal, ENOENT
     Stale      []string            // KindStale
@@ -257,7 +258,8 @@ type Plan struct {
 3. Walk `--music` with `filepath.WalkDir`. For each entry, `os.Lstat`:
    - symlink → `Symlinks`, never trashed
    - audio extension (`--ext`, default `.mp3,.wav,.aiff,.flac,.m4a`) → `FileID` present in
-     `Library` means keep, absent means `Orphans`
+     `Library` means keep; absent means `Orphans`, **unless** the file's mtime is newer than
+     the export, in which case it goes to `RecentlyAdded` and is never trashed
    - anything else → `Leftovers`, reported only
 
 Reporting `Library` as `FileID -> []string` rather than `FileID -> string` is what surfaces
@@ -285,8 +287,12 @@ Abort conditions, each meaning the XML is not a trustworthy picture of the libra
 
 Warnings, which do not stop the run:
 
-- XML mtime older than the newest audio file on disk — "tracks were added since this
-  export; re-export first". Quiet on current data: 0 audio files are newer than the XML.
+- files newer than the export were skipped rather than trashed. A file created after the
+  XML was written cannot appear in it, so its absence from the library proves nothing;
+  trashing it would violate the core invariant. This is not theoretical: 7 tracks were added
+  to `A2026-08/` forty minutes after the reference export, and a naive implementation would
+  have trashed all 7. They are excluded automatically and reported, so no `--force` is
+  needed — which matters, because `--force` would also disable the truncated-export guard.
 - `CaseDupes` present (8 today) — duplicate library entries worth merging in rekordbox
 - `StaleDupes` present (30 today) — stale Windows paths repeated up to 6 times each
 - `DeadLinks` present (4 today)
@@ -395,11 +401,31 @@ with an explanation rather than failing confusingly.
 
 ## Verification on real data
 
-Before the first destructive run, `--dry-run` output is checked against the measured table
-at the top of this spec: 6,657 orphans, 8,355 keepers, 4 dead links, 240 stale entries, 8
-case-duplicate pairs, 35 non-audio leftovers, 31 fully orphaned folders, 35.9 GB
-reclaimable. A discrepancy means a parsing bug, not a changed collection.
+The collection is **live** — 7 tracks were added to it during this project's own
+implementation — so the tool is verified against invariants rather than frozen counts. A
+build-tagged test (`-tags realdata`) asserts what cannot drift without a real bug:
 
-A useful cross-check during development: implementing naive string matching alongside the
-inode matcher should reproduce exactly 6,812 orphans. The 155-file difference confirms the
-inode path is doing the work it was chosen for.
+- `DeclaredEntries` equals the parsed `<TRACK>` count.
+- `Unresolved` is empty.
+- Every walked audio file is exactly one of keeper, orphan, or skipped.
+- `Keepers` equals `len(Library)`.
+- **No orphan is newer than the export.**
+- The resolved library clears the playlist-export floor.
+
+Absolute figures are logged for comparison against this baseline, measured 2026-08-27:
+
+```
+library=8355  keepers=8355  orphans=6657  skipped=7  deadlinks=4
+stalepaths=94 staledupes=30 casedupes=8   foreign=8  nonfile=2
+leftovers=35  symlinks=0    ondisk=15019  pct=44.3%  reclaim=35.9 GB
+```
+
+Pinning these as assertions was the original plan and was wrong: they would fail on every
+download, training whoever runs the test to ignore red.
+
+A separate check confirms inode matching earns its keep. Naive path-string matching over the
+same collection reports **6,812** orphans against inode matching's **6,657**. That 155-file
+gap was reproduced by mutating the matcher: the two normalization regression tests fail with
+exactly the predicted filenames (`Loredana Bertè`, `Te Amo Corazón`), and the real-collection
+count moves from 6,657 to 6,812. Those 155 files are in the library and would have been
+deleted.
