@@ -21,7 +21,8 @@ Measured state as of 2026-08-27, using the inode-matching algorithm this spec de
 | — not files at all (`tidal:`) | 2 |
 | Library entries that stat successfully | 8,363 |
 | Distinct files those entries point to | 8,355 (8 pairs are the same file, cased differently) |
-| Library entries whose file is gone | 4 |
+| Library entries whose file is gone | 4 (all under `A2026-05` … `A2026-07`) |
+| On-disk `.mp3` filenames stored non-NFC | 499 (155 of them in the library) |
 | **Files on disk with no library entry** | **6,657 — 44.3% of on-disk audio, 35.9 GB (33.4 GiB)** |
 | Non-audio files under `music/` | 35 (`.jpg`, `.webp`, `.txt`, `.xml`, `.DS_Store`) |
 | Symlinks under `music/` | 0 |
@@ -47,19 +48,28 @@ rekordbox.
 Five properties of the real data were verified before designing. Each one invalidates an
 otherwise obvious implementation choice.
 
-### 1. Unicode normalization mismatch runs in both directions
+### 1. The disk stores NFD filenames; rekordbox writes NFC
 
 `music/` is on APFS, case-insensitive and normalization-insensitive. `os.Stat` resolves a
 path whether it is spelled NFC or NFD, but a directory walk returns each filename in
-**whatever form was stored**. rekordbox emits NFC for some entries and NFD for others —
-percent-escapes for combining diacriticals (`%CC`, `%CE`) appear in the XML alongside
-precomposed UTF-8 sequences.
+**whatever form was stored**.
 
-Comparing decoded path strings marks **155 files that are in the library as orphans**:
-everything with accented or Icelandic characters (`Loredana Bertè`,
-`Þú komst við hjartað í mér`, `Pépé Bradock`, `Te Amo Corazón`). String matching yields
-6,812 orphans; inode matching yields 6,657. That 155-file gap is the bug this design exists
-to prevent.
+Measured, not assumed:
+
+- All 8,367 local `Location` values are NFC. **Zero** are NFD. (One NFD path exists in the
+  export — `Zoë Johnston`, escaped `Zoe%cc%88` — but it is a stale `e:/` entry that is never
+  statted, so it does not matter.)
+- **499 on-disk `.mp3` filenames are stored non-NFC.** 155 of them are in the library; the
+  other 344 are orphans regardless.
+
+So the mismatch is **one-directional**: disk NFD versus XML NFC. Comparing decoded path
+strings marks those **155 in-library files as orphans** — everything with accented or
+Icelandic characters (`Loredana Bertè`, `Þú komst við hjartað í mér`, `Pépé Bradock`,
+`Te Amo Corazón`). String matching yields 6,812 orphans; inode matching yields 6,657. That
+155-file gap is the bug this design exists to prevent.
+
+Note that high-byte percent-escapes are written in **lowercase** hex (`%cc`, `%ce`, `%8a`).
+`url.PathUnescape` accepts either case, but test fixtures must use the real form.
 
 ### 2. The library contains case-only duplicate entries
 
@@ -97,7 +107,9 @@ Identity is decided by the filesystem, not by string comparison. Each library lo
 each file on disk is statted, and the `(device, inode)` pair is the identity key. APFS
 resolves Unicode form and case itself, so the comparison is immune to normalization form,
 casing, symlinks, and hard links — findings 1 and 2 both dissolve rather than needing
-separate handling.
+separate handling. That matters because they are independent failures: normalization
+folding alone would still misreport the 8 case-duplicate entries, and case folding alone
+would still orphan the 155 NFD files.
 
 This needs no third-party dependency. The alternative
 (`golang.org/x/text/unicode/norm` plus case folding) re-implements what the filesystem
@@ -109,6 +121,30 @@ Cost is roughly 23,400 stat calls, negligible on APFS/SSD.
 successfully *and* its `FileID` is proven absent from a library set that resolved without
 error. Any stat failure other than `ENOENT` aborts the run rather than risking a deletion
 based on an incomplete library set.
+
+## Portability
+
+The collection began on Windows and moved to the Mac, and the tools should not be gratuitously
+macOS-only. Two pieces genuinely are platform-bound, so they are isolated behind build tags
+rather than allowed to leak into the core:
+
+| Concern | POSIX (darwin, linux) | Windows |
+| --- | --- | --- |
+| File identity | `(dev, ino)` from `syscall.Stat_t` | Would need `GetFileInformationByHandle` (volume serial + file index), which opens a handle per file rather than statting. **Not implemented.** |
+| Trash | `/usr/bin/trash` | Would need `SHFileOperation` with `FOF_ALLOWUNDO`. **Not implemented.** |
+
+Everything else — XML parsing, Location classification, planning, guards, reporting, batching,
+empty-directory removal — is portable and tested on any host.
+
+On Windows the tool **refuses to run with a clear message** rather than falling back to
+anything weaker. That is deliberate: the Windows machine is retired, so a Windows code path
+could not be tested on real hardware, and an untested deletion path is worse than no path.
+`Supported()` is checked before any work, so the failure is immediate and unambiguous.
+
+Note that the NFD/NFC problem is a macOS artifact. NTFS is case-insensitive but
+normalization-*sensitive*, so on Windows two normalization forms are genuinely two files.
+File-ID matching remains the right approach there — it is simply solving a problem that only
+exists on one of the two platforms.
 
 ## Repository layout
 
@@ -132,11 +168,17 @@ djtools/
     xml_test.go
   cmd/dj/internal/prune/
     command.go                                 flag parsing, orchestration
-    plan.go                                    inode index -> Plan
+    fileid.go                                  FileID type, portable
+    fileid_unix.go                             (dev, ino) via syscall.Stat_t
+    fileid_windows.go                          unsupported stub, refuses early
+    fileid_test.go
+    plan.go                                    file-id index -> Plan
     plan_test.go
     guard.go                                   sanity checks and thresholds
     guard_test.go
-    apply.go                                   trash batching, empty-dir removal
+    apply.go                                   batching, empty-dir removal (portable)
+    trash_darwin.go                            /usr/bin/trash
+    trash_unsupported.go                       refuses on other platforms
     apply_test.go
     report.go                                  summary rendering
     report_test.go
@@ -157,19 +199,38 @@ relative to the working directory (`./rekordbox.xml`, `./music`) so that
 truncated export can be detected. Playlist nodes are parsed for presence checking now, and
 for `dj playlist` later.
 
-`ClassifyLocation(raw, musicDir string) Location` returns a closed enum, because the four
-kinds need different handling:
+`ClassifyLocation(raw, musicDir string, host Host) Location` returns a closed enum, because
+the four kinds need different handling:
 
-| Kind | Meaning | Count today | Prune behaviour |
+| Kind | Meaning | Count on macOS today | Prune behaviour |
 | --- | --- | --- | --- |
 | `KindLocal` | resolves under `--music` | 8,367 | participates in keep/orphan matching |
-| `KindStale` | `e:/`, `E:/`, `C:/` Windows path | 240 | reported for rekordbox cleanup |
-| `KindForeign` | real path outside `--music` (Sampler `.wav`) | 8 | ignored; not a problem |
+| `KindStale` | path shaped for a *different* host OS | 240 | reported for rekordbox cleanup |
+| `KindForeign` | valid path for this host, outside `--music` | 8 | ignored; not a problem |
 | `KindNonFile` | `tidal:` or no decodable path | 2 | ignored |
 
 Decoding: strip the literal `file://localhost` prefix, then `url.PathUnescape` exactly
-once, then classify. A Windows drive-letter pattern (`^[A-Za-z]:/`) marks `KindStale`. A
-path that is not absolute after decoding marks `KindNonFile`.
+once, then classify.
+
+`KindStale` is deliberately **not** defined as "has a drive letter". This collection was
+exported from a Windows machine and imported on the Mac, which is where the 240 `e:/` and
+`C:/` entries come from — but the same tool run on that Windows machine against
+`--music e:/music` would find those entries live and the 8,367 `/Users/aron/...` entries
+unreachable. So the rule is *host-relative*:
+
+- On a POSIX host, a Windows drive path (`^[A-Za-z]:[/\\]`) is stale.
+- On a Windows host, a POSIX absolute path (`/...`) is stale.
+- Anything else absolute is `KindLocal` or `KindForeign` depending on whether it is under
+  `--music`.
+
+The host is a parameter rather than a direct `runtime.GOOS` read, so both branches are
+testable from either platform. This matters because the Windows machine is retired and its
+behaviour cannot be verified on real hardware.
+
+The "under `--music`" test compares case-insensitively and treats `\` and `/` as
+equivalent. Being liberal here is safe: classification only decides whether a path is worth
+statting, and identity is still settled by the file ID. A false `KindLocal` costs one
+wasted `os.Stat`, never a wrong deletion.
 
 ### `internal/prune` — `plan.go`
 
@@ -239,17 +300,22 @@ folders (`Dance`, `Pop`, `Rock`) and dated import batches (`A2026-01`).
 
 ### `internal/prune` — `apply.go`
 
-After a single `y/N` confirmation, orphans are passed to `/usr/bin/trash` in batches of 200
-paths to stay clear of `ARG_MAX`. macOS ships this binary, it handles the accented and
-Icelandic filenames correctly (verified), and Finder records original paths so **Put Back**
-restores files individually.
+After a single `y/N` confirmation, orphans are passed to the platform's trash mechanism in
+batches of 200 paths to stay clear of `ARG_MAX`. On macOS that is `/usr/bin/trash`, which
+ships with the OS, handles the accented and Icelandic filenames correctly (verified), and
+records original paths so Finder's **Put Back** restores files individually. The batching
+and error-collection logic is portable; only the binary and its availability check sit
+behind a build tag.
 
 Batch failures are collected and reported rather than aborting the run, and set a non-zero
 exit code. A partially completed run needs no cleanup: re-running recomputes from scratch.
 
-Then, unless `--keep-empty-dirs` is set, directories under `music/` containing no audio are
-removed bottom-up, and only when genuinely empty. 31 folders are fully orphaned today and
-will be empty afterwards.
+Then, unless `--keep-empty-dirs` is set, directories under `music/` are removed
+deepest-first, and **only when they contain no entries at all**. A directory still holding a
+`.DS_Store` or cover art is left alone and counted in the report as skipped, because
+leftovers are reported rather than trashed and removing them would exceed what the user
+confirmed. 31 folders are fully orphaned today, so at most 31 are removable; the actual
+number depends on how many still hold a leftover. `music/` itself is never removed.
 
 The command runner is an injectable interface so trashing is testable without touching the
 real Trash.
@@ -277,8 +343,9 @@ Exit codes: `0` success, `1` guard abort or user declined, `2` trash failures oc
 
 | Situation | Behaviour |
 | --- | --- |
+| Unsupported platform | refuse immediately, before reading anything |
 | XML unreadable or malformed | abort before any filesystem work |
-| `/usr/bin/trash` missing | abort before the confirmation prompt |
+| trash mechanism unavailable | abort before the confirmation prompt |
 | Library location `ENOENT` | record dead link, continue |
 | Library location other stat error | abort; the library set is incomplete |
 | Walk error on a directory | abort; an unreadable directory could hide library files |
@@ -288,13 +355,22 @@ Exit codes: `0` success, `1` guard abort or user declined, `2` trash failures oc
 ## Testing
 
 `plan_test.go` carries the regression test that matters: a temp-directory fixture with
-files created in NFD and an XML referencing them in NFC, plus the reverse, asserting **zero
-orphans**. This is the guard against the 155-file bug, and it is why matching is tested
-against real fixtures rather than in-memory strings.
+files created in NFD and a collection referencing them in NFC, asserting **zero orphans**.
+That is the observed real-world direction and the guard against the 155-file bug. The
+reverse direction (NFD in the collection, NFC on disk) is also tested, defensively — it
+does not occur in the current export, but nothing guarantees rekordbox will not emit it.
+
+This is why matching is tested against real temp-directory fixtures rather than in-memory
+strings: the behaviour under test belongs to the filesystem. On a normalization-sensitive
+volume the test would be meaningless, so it probes the fixture directory first and skips
+with an explanation rather than failing confusingly.
 
 - `location_test.go` — table-driven over the real samples: unescaped `+`, `%25`, `%27`,
-  `file://localhoste:/`, `file://localhostC:/`, `tidal:`, Sampler `.wav`, and accented and
-  Icelandic names in both normalization forms.
+  `%26`, lowercase high-byte escapes, `file://localhoste:/`, `file://localhostC:/`,
+  `tidal:tracks:`, and Sampler `.wav`. Each classification case runs against **both** host
+  values, asserting that a drive path is stale on POSIX and local on Windows, and that a
+  `/Users/...` path is the reverse. This is the only way the retired Windows machine's
+  behaviour gets covered at all.
 - `xml_test.go` — declared `Entries` vs actual count, missing `COLLECTION`, missing
   `PLAYLISTS`.
 - `plan_test.go` — normalization fixtures both directions, case-variant entries collapsing
