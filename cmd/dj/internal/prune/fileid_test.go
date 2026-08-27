@@ -26,13 +26,29 @@ func TestFileIDFromInfo(t *testing.T) {
 }
 
 // The premise of the whole matching strategy: differently spelled paths that
-// resolve to the same file produce the same FileID.
+// resolve to the same file produce the same FileID. On the real collection 499
+// filenames are stored non-NFC while rekordbox writes NFC, and 155 of those are
+// in the library; without this property they would all be read as orphans and
+// deleted.
+//
+// The two names are written as explicit \u escapes, and the test asserts up
+// front that they really are distinct byte sequences. Spelled with literal
+// accented characters they look identical in an editor, so an accidental copy of
+// one into the other would leave this comparing a file to itself: passing while
+// proving nothing. That exact mistake has already happened once here.
 func TestFileIDIsStableAcrossPathSpellings(t *testing.T) {
 	dir := t.TempDir()
-	// "é" as a combining sequence: 'e' + U+0301.
-	nfd := filepath.Join(dir, "Café.mp3")
-	// The same name precomposed: U+00E9.
-	nfc := filepath.Join(dir, "Café.mp3")
+
+	const (
+		nfdName = "Caf\u0065\u0301.mp3" // 'e' followed by U+0301 combining acute
+		nfcName = "Caf\u00e9.mp3"       // precomposed U+00E9
+	)
+	if nfdName == nfcName {
+		t.Fatal("the two spellings are byte-identical, so this test would prove nothing")
+	}
+
+	nfd := filepath.Join(dir, nfdName)
+	nfc := filepath.Join(dir, nfcName)
 
 	if err := os.WriteFile(nfd, []byte("audio"), 0o644); err != nil {
 		t.Fatal(err)
