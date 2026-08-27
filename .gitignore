@@ -1,0 +1,14 @@
+# Binaries
+bin/
+build/
+/dj
+*.exe
+*.test
+*.out
+
+# macOS
+.DS_Store
+
+# Local scratch: prune reports, sample XML exports pulled in for testing
+*.local.xml
+/reports/
