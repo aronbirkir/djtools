@@ -76,6 +76,8 @@ type Location struct {
 // stripped literally instead of going through url.Parse.
 const localhostPrefix = "file://localhost"
 
+// windowsDrive matches a drive letter followed by either separator, since a
+// drive path may be spelled with '/' or '\' depending on where it came from.
 var windowsDrive = regexp.MustCompile(`^[A-Za-z]:[/\\]`)
 
 // ClassifyLocation decodes a rekordbox Location and decides how prune should
@@ -99,15 +101,15 @@ func ClassifyLocation(raw, musicDir string, host Host) Location {
 
 	switch host {
 	case HostWindows:
-		if drive {
-			break // reachable here
+		if !drive {
+			if posixAbs {
+				// A mac path, unreachable from Windows.
+				return Location{Raw: raw, Path: path, Kind: KindStale}
+			}
+			// Streaming entries such as "tidal:tracks:62303032".
+			return Location{Raw: raw, Kind: KindNonFile}
 		}
-		if posixAbs {
-			// A mac path, unreachable from Windows.
-			return Location{Raw: raw, Path: path, Kind: KindStale}
-		}
-		// Streaming entries such as "tidal:tracks:62303032".
-		return Location{Raw: raw, Kind: KindNonFile}
+		// drive: reachable here, fall through to the musicDir check below.
 	default: // HostPOSIX
 		if drive {
 			// A Windows path, unreachable from here. These are the leftovers
@@ -147,6 +149,8 @@ func underMusicDir(path, musicDir string) bool {
 	return strings.HasPrefix(p, m)
 }
 
+// foldPath lowercases and normalizes `\` to `/` so that POSIX-style and
+// Windows-style spellings of the same path compare equal.
 func foldPath(p string) string {
 	return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
 }
