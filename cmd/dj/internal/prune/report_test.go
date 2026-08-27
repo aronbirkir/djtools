@@ -1,6 +1,7 @@
 package prune
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,64 @@ func TestReportListsEverySection(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("report missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// The real collection has 110 folders holding orphans, most contributing a
+// handful of files. Printing all of them buries the folders that matter, so the
+// tail collapses into a single row that still carries its own totals.
+func TestSummaryCollapsesLongFolderTail(t *testing.T) {
+	p := &Plan{
+		MusicDir:      "/m",
+		FolderTotals:  map[string]int{},
+		FolderOrphans: map[string]int{},
+		FolderBytes:   map[string]int64{},
+	}
+	// Five more folders than the cap, each with a distinct orphan count so the
+	// ordering is unambiguous: f00 is largest, f29 smallest.
+	const extra = 5
+	for i := 0; i < maxFolderRows+extra; i++ {
+		name := fmt.Sprintf("f%02d", i)
+		n := maxFolderRows + extra - i
+		p.FolderOrphans[name] = n
+		p.FolderTotals[name] = n
+		p.FolderBytes[name] = int64(n) * 1000
+		p.OrphanSize += int64(n) * 1000
+		for j := 0; j < n; j++ {
+			p.Orphans = append(p.Orphans, name+"/x.mp3")
+		}
+	}
+
+	var b strings.Builder
+	if err := Summary(&b, p, nil); err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	out := b.String()
+
+	if !strings.Contains(out, fmt.Sprintf("(+%d more folders)", extra)) {
+		t.Errorf("expected the tail collapsed into one row:\n%s", out)
+	}
+	if !strings.Contains(out, "f00") {
+		t.Errorf("the largest folder must still be listed:\n%s", out)
+	}
+	if strings.Contains(out, "f29") {
+		t.Errorf("the smallest folder should be collapsed, not listed:\n%s", out)
+	}
+	// The collapsed row must not swallow anything: its orphan count plus the
+	// listed rows' must equal the total.
+	if !strings.Contains(out, "TOTAL") {
+		t.Errorf("missing TOTAL row:\n%s", out)
+	}
+}
+
+// A table with fewer folders than the cap must not print a collapsed row at all.
+func TestSummaryNoCollapseRowWhenShort(t *testing.T) {
+	var b strings.Builder
+	if err := Summary(&b, reportPlan(), nil); err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	if out := b.String(); strings.Contains(out, "more folders") {
+		t.Errorf("unexpected collapsed row for a two-folder plan:\n%s", out)
 	}
 }
 

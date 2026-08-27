@@ -7,6 +7,14 @@ import (
 	"text/tabwriter"
 )
 
+// maxFolderRows caps the per-folder table. The reference collection has 110
+// folders holding orphans, and the tail is long and uninformative: 54 of them
+// account for 88 files between them, while the top 25 cover 91% of the orphans
+// and 88% of the reclaimable bytes. Printing every row buries the folders that
+// actually matter. The remainder collapses into one row carrying its own totals,
+// so nothing is concealed -- and --report still lists every path.
+const maxFolderRows = 25
+
 // Summary writes the human-facing report: a per-folder table, totals, and every
 // guard finding. It is what the user reads before confirming.
 func Summary(w io.Writer, p *Plan, findings []Finding) error {
@@ -32,11 +40,27 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 		return a < b
 	})
 
+	shown := folders
+	if len(shown) > maxFolderRows {
+		shown = folders[:maxFolderRows]
+	}
+
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "FOLDER\tORPHANS\tTOTAL\tRECLAIM")
-	for _, name := range folders {
+	for _, name := range shown {
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n",
 			name, p.FolderOrphans[name], p.FolderTotals[name], humanBytes(p.FolderBytes[name]))
+	}
+	if rest := folders[len(shown):]; len(rest) > 0 {
+		var orphans, total int
+		var bytes int64
+		for _, name := range rest {
+			orphans += p.FolderOrphans[name]
+			total += p.FolderTotals[name]
+			bytes += p.FolderBytes[name]
+		}
+		fmt.Fprintf(tw, "(+%d more folders)\t%d\t%d\t%s\n",
+			len(rest), orphans, total, humanBytes(bytes))
 	}
 	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%s\n", len(p.Orphans), p.OnDiskAudio(), humanBytes(p.OrphanSize))
 	if err := tw.Flush(); err != nil {
@@ -47,6 +71,12 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 		"\n%d files kept, %d orphaned (%.1f%% of the %d files this export accounts for)\n",
 		p.Keepers, len(p.Orphans), p.OrphanPct(), p.EligibleAudio()); err != nil {
 		return err
+	}
+
+	// Without this the TOTAL row (collection-wide) cannot be reconciled against
+	// the rows above it, which only cover folders containing orphans.
+	if untouched := len(p.FolderTotals) - len(folders); untouched > 0 {
+		fmt.Fprintf(w, "%d folders contain no orphans and are untouched\n", untouched)
 	}
 
 	if n := len(p.RecentlyAdded); n > 0 {
