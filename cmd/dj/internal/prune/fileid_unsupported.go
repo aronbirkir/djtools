@@ -8,7 +8,9 @@ import (
 	"runtime"
 )
 
-// Supported reports whether pruning can run on this platform.
+// Supported reports whether the file-identity mechanism this package depends on
+// exists on the current platform. Deletion capability is a separate check, made
+// immediately before anything is trashed.
 //
 // Only POSIX platforms are implemented. On Windows, file identity would require
 // GetFileInformationByHandle (volume serial plus file index), which opens a
@@ -18,8 +20,9 @@ import (
 // falling back to path-string comparison -- which is exactly the approach that
 // would delete in-library files.
 func Supported() error {
-	return errors.New("dj prune is not implemented on " + runtime.GOOS +
-		": file identity and a recoverable trash are both missing")
+	return errors.New("dj prune does not run on " + runtime.GOOS +
+		": deciding whether two paths name the same file needs platform support " +
+		"that is not implemented here")
 }
 
 // fileIDFromInfo always reports false here. Callers must treat that as

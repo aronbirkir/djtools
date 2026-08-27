@@ -7,7 +7,12 @@ import (
 	"syscall"
 )
 
-// Supported reports whether pruning can run on this platform.
+// Supported reports whether the file-identity mechanism this package depends on
+// exists on the current platform.
+//
+// It deliberately says nothing about whether files can be deleted. Planning
+// works on any POSIX system, while moving files to a recoverable trash is
+// checked separately, immediately before anything is trashed.
 func Supported() error { return nil }
 
 // fileIDFromInfo extracts the identity pair from a stat result. It reports false

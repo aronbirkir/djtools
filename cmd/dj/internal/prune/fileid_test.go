@@ -1,3 +1,5 @@
+//go:build unix
+
 package prune
 
 import (
@@ -73,6 +75,52 @@ func TestFileIDIsStableAcrossPathSpellings(t *testing.T) {
 	}
 	if nfdID != nfcID {
 		t.Errorf("FileID differs by spelling: NFD %+v, NFC %+v", nfdID, nfcID)
+	}
+}
+
+// The other half of the premise: APFS is case-insensitive as well as
+// normalization-insensitive, so two spellings differing only in letter case
+// name one file. The real library holds 8 such pairs of <TRACK> entries
+// (STEVE WATSON / Steve Watson, Blackball Main Mixx / Blackball Main MixX), and
+// treating case as significant would turn each into a dead link plus a
+// spurious orphan.
+func TestFileIDIsStableAcrossPathCase(t *testing.T) {
+	dir := t.TempDir()
+
+	const (
+		lowerName = "steve watson - born to boogie.mp3"
+		upperName = "STEVE WATSON - Born To Boogie.mp3"
+	)
+	if lowerName == upperName {
+		t.Fatal("the two spellings are byte-identical, so this test would prove nothing")
+	}
+
+	lowerPath := filepath.Join(dir, lowerName)
+	upperPath := filepath.Join(dir, upperName)
+
+	if err := os.WriteFile(lowerPath, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lowerInfo, err := os.Stat(lowerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upperInfo, err := os.Stat(upperPath)
+	if err != nil {
+		t.Skipf("filesystem at %s is case-sensitive: %v", dir, err)
+	}
+
+	lowerID, ok := fileIDFromInfo(lowerInfo)
+	if !ok {
+		t.Fatal("no FileID for the lowercase spelling")
+	}
+	upperID, ok := fileIDFromInfo(upperInfo)
+	if !ok {
+		t.Fatal("no FileID for the uppercase spelling")
+	}
+	if lowerID != upperID {
+		t.Errorf("FileID differs by case: lower %+v, upper %+v", lowerID, upperID)
 	}
 }
 
