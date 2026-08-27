@@ -250,22 +250,28 @@ func TestAbortsWithNoFindings(t *testing.T) {
 	}
 }
 
-// Check must collect every abort rather than returning at the first. A future
-// early return would pass every single-condition test above while hiding the
-// rest of what is wrong with an export.
+// Check must collect every abort rather than returning at the first. This
+// triggers the earliest abort in Check's order and the latest, and asserts both
+// by code, so a short-circuit inserted anywhere between them drops one.
+//
+// Asserting specific codes rather than a count matters: an earlier version of
+// this test counted aborts and passed even with an early return injected, because
+// both conditions it triggered fired before the injection point.
 func TestCheckReportsAllSimultaneousAborts(t *testing.T) {
 	p, c, opts := healthyPlan(), healthyCollection(), defaultGuardOptions()
-	c.HasPlaylists = false
-	p.Unresolved = []error{errors.New("permission denied")}
+	c.HasCollection = false                         // CodeNoCollection, first abort
+	p.NonFile = nonFileLimit(c.DeclaredEntries) + 1 // CodeUndecodable, last abort
 
-	var aborts int
+	got := make(map[Code]bool)
 	for _, f := range Check(p, c, opts) {
 		if f.Level == LevelAbort {
-			aborts++
+			got[f.Code] = true
 		}
 	}
-	if aborts < 2 {
-		t.Fatalf("got %d aborts, want at least 2: Check must not short-circuit", aborts)
+	for _, want := range []Code{CodeNoCollection, CodeUndecodable} {
+		if !got[want] {
+			t.Errorf("abort %q missing: Check must not short-circuit", want)
+		}
 	}
 }
 
