@@ -27,44 +27,17 @@ type Collection struct {
 	Tracks []Track
 }
 
-// Track is one <TRACK> element, limited to the fields these tools use.
+// Track is one <TRACK> element, limited to the fields these tools use. The real
+// export carries roughly 25 attributes; the rest are ignored.
+//
+// The xml tags sit directly on this exported type rather than on a private
+// mirror struct. Every attribute name already matches its field name, so a
+// separate decode struct plus a field-by-field copy would only add a second
+// place for a field to go missing, without buying any independence.
+//
 // AverageBpm and Tonality stay strings because they are formatted values
 // ("108.00", "11A") that no consumer needs as numbers yet.
 type Track struct {
-	TrackID    string
-	Name       string
-	Artist     string
-	Album      string
-	Genre      string
-	Location   string
-	AverageBpm string
-	Tonality   string
-	Comments   string
-	DateAdded  string
-	Rating     int
-	PlayCount  int
-	TotalTime  int
-	Year       int
-}
-
-type xmlDoc struct {
-	XMLName   xml.Name       `xml:"DJ_PLAYLISTS"`
-	Product   xmlProduct     `xml:"PRODUCT"`
-	Coll      *xmlCollection `xml:"COLLECTION"`
-	Playlists *xmlPlaylists  `xml:"PLAYLISTS"`
-}
-
-type xmlProduct struct {
-	Name    string `xml:"Name,attr"`
-	Version string `xml:"Version,attr"`
-}
-
-type xmlCollection struct {
-	Entries int        `xml:"Entries,attr"`
-	Tracks  []xmlTrack `xml:"TRACK"`
-}
-
-type xmlTrack struct {
 	TrackID    string `xml:"TrackID,attr"`
 	Name       string `xml:"Name,attr"`
 	Artist     string `xml:"Artist,attr"`
@@ -81,6 +54,31 @@ type xmlTrack struct {
 	Year       int    `xml:"Year,attr"`
 }
 
+type xmlDoc struct {
+	XMLName   xml.Name       `xml:"DJ_PLAYLISTS"`
+	Product   xmlProduct     `xml:"PRODUCT"`
+	Coll      *xmlCollection `xml:"COLLECTION"`
+	Playlists *xmlPlaylists  `xml:"PLAYLISTS"`
+}
+
+type xmlProduct struct {
+	Name    string `xml:"Name,attr"`
+	Version string `xml:"Version,attr"`
+}
+
+// xmlCollection is the envelope around the track list. Two decoder behaviours
+// worth recording, both confirmed by experiment rather than assumed:
+//
+//   - Only TRACK elements nested inside COLLECTION are captured. A stray TRACK
+//     elsewhere in the document is silently dropped, not an error.
+//   - Were a document to contain two COLLECTION elements, their tracks would be
+//     appended into a single slice while Entries kept only the last value,
+//     rather than failing. A real export has exactly one.
+type xmlCollection struct {
+	Entries int     `xml:"Entries,attr"`
+	Tracks  []Track `xml:"TRACK"`
+}
+
 // xmlPlaylists captures only the root node. The playlist tree is not needed for
 // pruning; dj playlist will extend this when it needs the hierarchy.
 type xmlPlaylists struct {
@@ -92,8 +90,12 @@ type xmlPlaylistNode struct {
 	Count int    `xml:"Count,attr"`
 }
 
-// Parse decodes a rekordbox XML export. The reference export is 17 MB, so it is
-// read whole rather than streamed.
+// Parse decodes a rekordbox XML export.
+//
+// The document is decoded whole rather than streamed. The reference export is
+// 16 MB and the Collection it retains is about 4 MB; transient allocation
+// during the decode is roughly an order of magnitude larger than the file,
+// which is unremarkable for a command that runs once per invocation.
 func Parse(r io.Reader) (*Collection, error) {
 	var doc xmlDoc
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
@@ -109,25 +111,7 @@ func Parse(r io.Reader) (*Collection, error) {
 
 	if doc.Coll != nil {
 		c.DeclaredEntries = doc.Coll.Entries
-		c.Tracks = make([]Track, 0, len(doc.Coll.Tracks))
-		for _, t := range doc.Coll.Tracks {
-			c.Tracks = append(c.Tracks, Track{
-				TrackID:    t.TrackID,
-				Name:       t.Name,
-				Artist:     t.Artist,
-				Album:      t.Album,
-				Genre:      t.Genre,
-				Location:   t.Location,
-				AverageBpm: t.AverageBpm,
-				Tonality:   t.Tonality,
-				Comments:   t.Comments,
-				DateAdded:  t.DateAdded,
-				Rating:     t.Rating,
-				PlayCount:  t.PlayCount,
-				TotalTime:  t.TotalTime,
-				Year:       t.Year,
-			})
-		}
+		c.Tracks = doc.Coll.Tracks
 	}
 
 	if doc.Playlists != nil && doc.Playlists.Root != nil {

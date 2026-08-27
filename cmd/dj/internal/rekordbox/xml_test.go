@@ -111,6 +111,41 @@ func TestParseMissingSections(t *testing.T) {
 	})
 }
 
+// Every field is asserted together because the xml tags are now the only thing
+// mapping attributes onto Track: a single mistyped tag would silently yield a
+// zero value. Location matters most, since every later stage keys off it to
+// find the file on disk. Album is deliberately absent from the fixture, which
+// also pins down that a missing attribute decodes to the zero value.
+func TestParseTrackFields(t *testing.T) {
+	c, err := Parse(strings.NewReader(twoTrackXML))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(c.Tracks) != 2 {
+		t.Fatalf("len(Tracks) = %d, want 2", len(c.Tracks))
+	}
+
+	want := Track{
+		TrackID:    "122796268",
+		Name:       "Don't Stop The Music",
+		Artist:     "Rihanna",
+		Album:      "",
+		Genre:      "Pop",
+		Location:   "file://localhost/Users/aron/DJ/music/Pop/b.mp3",
+		AverageBpm: "122.70",
+		Tonality:   "11A",
+		Comments:   "11A - 7",
+		DateAdded:  "2017-09-08",
+		Rating:     3,
+		PlayCount:  3,
+		TotalTime:  267,
+		Year:       2008,
+	}
+	if got := c.Tracks[1]; got != want {
+		t.Errorf("Tracks[1] =\n  %#v\nwant\n  %#v", got, want)
+	}
+}
+
 func TestParseMalformed(t *testing.T) {
 	if _, err := Parse(strings.NewReader(`<DJ_PLAYLISTS><COLLECTION`)); err == nil {
 		t.Fatal("Parse succeeded on malformed XML, want error")
