@@ -277,6 +277,11 @@ Abort conditions, each meaning the XML is not a trustworthy picture of the libra
 - orphans exceed `--max-orphan-pct` of on-disk audio (default 60; the first real run is
   44.3%, which clears with headroom)
 - `Unresolved` is non-empty
+- more than 50 entries yield no usable path. Normally these are streaming tracks and the
+  export has exactly 2; a sudden crop means rekordbox changed the `Location` format and
+  decoding is failing systemically. A *total* failure would already be caught by the
+  small-library and orphan-share guards, but a partial one might slip past both, and
+  neither would report the real cause.
 
 Warnings, which do not stop the run:
 
