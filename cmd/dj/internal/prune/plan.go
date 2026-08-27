@@ -61,16 +61,30 @@ type Plan struct {
 	FolderBytes   map[string]int64 // top-level folder -> reclaimable bytes
 }
 
-// OnDiskAudio is every audio file walked, and the denominator for the
-// orphan-share guard. RecentlyAdded counts here because those files are on disk;
-// they are simply not eligible for trashing.
+// OnDiskAudio is every audio file walked, and the figure to report as the
+// collection's total footprint.
 func (p *Plan) OnDiskAudio() int {
 	return p.Keepers + len(p.Orphans) + len(p.RecentlyAdded)
 }
 
-// OrphanPct is the share of on-disk audio that would be trashed.
+// EligibleAudio is the audio this export could plausibly account for: keepers
+// plus orphans. Files added after the export was written are excluded, since it
+// could not have described them either way.
+func (p *Plan) EligibleAudio() int {
+	return p.Keepers + len(p.Orphans)
+}
+
+// OrphanPct is the share of eligible audio that would be trashed, and the
+// quantity the orphan-share guard thresholds on.
+//
+// RecentlyAdded is deliberately absent from the denominator. Including it would
+// dilute the percentage in proportion to how much un-exported new music happened
+// to be sitting on disk, making a run look more trustworthy precisely when the
+// collection is most in flux. With 500 tracks added after the export, this
+// collection's 6,645 orphans would read 42.8% rather than 44.2% -- movement that
+// says nothing about whether the export is trustworthy.
 func (p *Plan) OrphanPct() float64 {
-	total := p.OnDiskAudio()
+	total := p.EligibleAudio()
 	if total == 0 {
 		return 0
 	}
@@ -131,26 +145,36 @@ func (p *Plan) resolveLibrary(c *rekordbox.Collection) {
 				continue // byte-identical duplicate entry, already statted
 			}
 			seenLocal[loc.Path] = true
-
-			info, err := os.Stat(loc.Path)
-			switch {
-			case err == nil:
-				id, ok := fileIDFromInfo(info)
-				if !ok {
-					p.Unresolved = append(p.Unresolved,
-						fmt.Errorf("no stat data for library file %s", loc.Path))
-					continue
-				}
-				p.Library[id] = append(p.Library[id], loc.Path)
-			case errors.Is(err, fs.ErrNotExist):
-				p.DeadLinks = append(p.DeadLinks, loc.Path)
-			default:
-				// Permissions, I/O errors, a detached volume: we cannot prove
-				// what is in the library, so this must stop the run.
-				p.Unresolved = append(p.Unresolved,
-					fmt.Errorf("stat library file %s: %w", loc.Path, err))
-			}
+			p.resolveLocal(loc.Path)
 		}
+	}
+}
+
+// resolveLocal stats one library path and records what it found. It is separate
+// from resolveLibrary because this is where "uncertainty means keep" is actually
+// enforced, and that decision is worth reading on its own.
+//
+// A missing file is a dead link: the library simply points at something the user
+// deleted. Any other failure means we could not determine what is in the
+// library, which must stop the run rather than licensing a deletion.
+func (p *Plan) resolveLocal(path string) {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil:
+		id, ok := fileIDFromInfo(info)
+		if !ok {
+			p.Unresolved = append(p.Unresolved,
+				fmt.Errorf("no stat data for library file %s", path))
+			return
+		}
+		p.Library[id] = append(p.Library[id], path)
+	case errors.Is(err, fs.ErrNotExist):
+		p.DeadLinks = append(p.DeadLinks, path)
+	default:
+		// Permissions, I/O errors, a detached volume, a path component that is
+		// not a directory: we cannot prove what is in the library.
+		p.Unresolved = append(p.Unresolved,
+			fmt.Errorf("stat library file %s: %w", path, err))
 	}
 }
 
@@ -180,6 +204,9 @@ func (p *Plan) walkDisk(exts []string, exportedAt time.Time) error {
 			p.Symlinks = append(p.Symlinks, path)
 			return nil
 		}
+		// Sockets, FIFOs and device files are ignored entirely rather than
+		// reported as leftovers. Nothing under a music folder should be one, and
+		// they are never candidates for trashing.
 		if !info.Mode().IsRegular() {
 			return nil
 		}
@@ -222,6 +249,9 @@ func (p *Plan) walkDisk(exts []string, exportedAt time.Time) error {
 // finalize derives the duplicate lists and sorts every reported slice so output
 // is stable between runs.
 func (p *Plan) finalize() {
+	// Sorting here reorders the slices stored in p.Library itself, not copies.
+	// That is intended -- CaseDupes must be deterministic -- but it means
+	// Library's order does not reflect which Location the XML declared first.
 	for _, spellings := range p.Library {
 		if len(spellings) > 1 {
 			sort.Strings(spellings)

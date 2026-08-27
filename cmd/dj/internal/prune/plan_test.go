@@ -397,3 +397,95 @@ func TestBuildSkipsAudioAddedAfterExport(t *testing.T) {
 		t.Errorf("RecentlyAdded without an export time = %v, want none", p2.RecentlyAdded)
 	}
 }
+
+// The "uncertainty means keep" invariant lives in the non-ENOENT branch of
+// resolveLibrary, and nothing else exercises it: every other test asserts
+// Unresolved is empty. Statting through a regular file yields ENOTDIR, which is
+// not ErrNotExist, so it must be recorded as unresolved rather than mistaken for
+// a dead link.
+//
+// ENOTDIR is used rather than EACCES deliberately. An unreadable directory also
+// breaks the walk, so Build would return an error and Unresolved would never be
+// observable -- and a test run as root bypasses permission bits entirely.
+func TestBuildNonENOENTStatFailureIsUnresolved(t *testing.T) {
+	music := t.TempDir()
+
+	// A real audio file that the library entry then tries to traverse through.
+	blocker := filepath.Join(music, "House", "track.mp3")
+	writeFile(t, blocker, 100)
+	through := filepath.Join(blocker, "inner.mp3")
+
+	if _, err := os.Stat(through); err == nil {
+		t.Skip("statting through a regular file unexpectedly succeeded")
+	}
+
+	p, err := buildPlan(collectionOf(through), music, defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(p.Unresolved) != 1 {
+		t.Fatalf("Unresolved = %v, want exactly one: a non-ENOENT stat failure means the library set is incomplete", p.Unresolved)
+	}
+	if len(p.DeadLinks) != 0 {
+		t.Errorf("DeadLinks = %v, want none: ENOTDIR is not a missing file", p.DeadLinks)
+	}
+	// The blocker itself has no library entry, so it is a legitimate orphan.
+	// The run still must not proceed, because Unresolved is non-empty -- that is
+	// the guard's job, not Build's.
+	if len(p.Orphans) != 1 || p.Orphans[0] != blocker {
+		t.Errorf("Orphans = %v, want [%s]", p.Orphans, blocker)
+	}
+}
+
+// Two directory entries sharing one inode, with only one referenced by the
+// library. Both must be keepers: they are the same file, and identity is what
+// decides. The safe outcome here is a consequence of FileID matching rather than
+// anything explicit, so it is worth pinning -- a future move back to path
+// comparison would turn this into a wrong deletion.
+func TestBuildHardLinkedDuplicateIsKept(t *testing.T) {
+	music := t.TempDir()
+
+	inLibrary := filepath.Join(music, "House", "original.mp3")
+	writeFile(t, inLibrary, 100)
+
+	linked := filepath.Join(music, "Disco", "hardlink.mp3")
+	if err := os.MkdirAll(filepath.Dir(linked), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(inLibrary, linked); err != nil {
+		t.Skipf("cannot create a hard link: %v", err)
+	}
+
+	p, err := buildPlan(collectionOf(inLibrary), music, defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(p.Orphans) != 0 {
+		t.Errorf("Orphans = %v, want none: both names share the library file's inode", p.Orphans)
+	}
+	// Keepers counts walked files, so both names count -- which is why Keepers
+	// can legitimately exceed len(Library).
+	if p.Keepers != 2 {
+		t.Errorf("Keepers = %d, want 2", p.Keepers)
+	}
+	if len(p.Library) != 1 {
+		t.Errorf("len(Library) = %d, want 1: one inode", len(p.Library))
+	}
+}
+
+// A file directly in musicDir has no subfolder to group under.
+func TestBuildTopFolderForRootLevelFile(t *testing.T) {
+	music := t.TempDir()
+	writeFile(t, filepath.Join(music, "loose.mp3"), 50)
+
+	p, err := buildPlan(collectionOf(), music, defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.FolderOrphans["."] != 1 {
+		t.Errorf(`FolderOrphans["."] = %d, want 1`, p.FolderOrphans["."])
+	}
+	if p.FolderBytes["."] != 50 {
+		t.Errorf(`FolderBytes["."] = %d, want 50`, p.FolderBytes["."])
+	}
+}
