@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixture builds a music dir plus an XML export naming only the keepers.
@@ -146,5 +147,93 @@ func TestRunUnknownFlagIsAnError(t *testing.T) {
 	var out, errOut strings.Builder
 	if code := Run([]string{"--nonsense"}, &out, &errOut, strings.NewReader("")); code == 0 {
 		t.Error("exit = 0, want non-zero for an unknown flag")
+	}
+}
+
+// --force covers findings a user may know to be wrong, but must not reach an
+// unresolved library path: that means we could not establish what is in the
+// library, so no deletion is justified. Dropping that gate left the whole suite
+// green, because nothing produced such a finding.
+//
+// ENOTDIR is provoked by pointing a Location through a regular file. Unlike an
+// unreadable directory it does not also break the walk, so Build still returns a
+// plan and the finding is reachable.
+func TestRunForceCannotOverrideUnresolved(t *testing.T) {
+	music, xml := fixture(t, 600, 1)
+
+	blocker := filepath.Join(music, "House", "keep-0.mp3")
+	through := filepath.Join(blocker, "inner.mp3")
+
+	body, err := os.ReadFile(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra := "    <TRACK TrackID=\"unresolvable\" Location=\"" +
+		locationFor(through) + "\"/>\n  </COLLECTION>"
+	if err := os.WriteFile(xml,
+		[]byte(strings.Replace(string(body), "  </COLLECTION>", extra, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orphan := filepath.Join(music, "Disco", "orphan-0.mp3")
+
+	var out, errOut strings.Builder
+	// The most dangerous combination available: force past the guards and skip
+	// the prompt.
+	code := Run([]string{"--xml", xml, "--music", music, "--force", "--yes"},
+		&out, &errOut, strings.NewReader("y\n"))
+
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1: --force must not override an unresolved library path.\nstdout:\n%s\nstderr:\n%s",
+			code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "cannot be overridden with --force") {
+		t.Errorf("expected the blocked-findings message:\n%s", out.String())
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Errorf("a file was removed despite the refusal: %v", err)
+	}
+}
+
+// The export time must actually reach Build, or the protection keeping freshly
+// downloaded music out of the Trash silently disappears. Removing the zero-time
+// refusal in Run left the whole suite green, so this exercises the plumbing
+// end to end rather than the guard clause.
+func TestRunSkipsAudioNewerThanTheExport(t *testing.T) {
+	music, xml := fixture(t, 600, 0)
+
+	xi, err := os.Stat(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := filepath.Join(music, "A2026-08", "just-downloaded.mp3")
+	writeFile(t, fresh, 200)
+	later := xi.ModTime().Add(time.Hour)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut strings.Builder
+	code := Run([]string{"--xml", xml, "--music", music, "--dry-run"},
+		&out, &errOut, strings.NewReader(""))
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0. stderr:\n%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "skipped rather than trashed") {
+		t.Errorf("a file newer than the export should have been skipped:\n%s", out.String())
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("the newer file was removed: %v", err)
+	}
+}
+
+func TestRunHelpExitsZero(t *testing.T) {
+	var out, errOut strings.Builder
+	if code := Run([]string{"--help"}, &out, &errOut, strings.NewReader("")); code != 0 {
+		t.Errorf("exit = %d, want 0: --help is a successful request, not a failure", code)
+	}
+	if !strings.Contains(errOut.String(), "-dry-run") {
+		t.Errorf("usage should list the flags:\n%s", errOut.String())
 	}
 }

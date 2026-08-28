@@ -2,6 +2,7 @@ package prune
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -53,6 +54,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	fs.BoolVar(&opts.keepEmptyDirs, "keep-empty-dirs", false, "do not remove emptied directories")
 
 	if err := fs.Parse(args); err != nil {
+		// -h/--help is a successful request for help, not a failure: the flag
+		// package has already printed usage and returns ErrHelp.
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
 		return exitStopped
 	}
 
