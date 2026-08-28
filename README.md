@@ -19,15 +19,28 @@ found in it are reported for you to fix inside rekordbox.
 
 ## Usage
 
-Install the binary, then run it from the collection directory so the default
-paths resolve:
+Build from this repo — the module is local, so `go install <path>@latest` will not
+work:
 
 ```sh
-go install github.com/aronbirkir/djtools/cmd/dj@latest
+cd ~/dev/experiment/go/djtools
+go install ./cmd/dj          # -> $(go env GOPATH)/bin/dj
+```
 
+`$(go env GOPATH)/bin` is not on `PATH` by default. Either add it:
+
+```sh
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+or call the binary by its full path. Then run from the collection directory, so the
+default `--xml` and `--music` values resolve:
+
+```sh
 cd ~/DJ
 dj prune --dry-run                        # scan and report, change nothing
 dj prune --dry-run --report /tmp/p.txt    # plus full lists to grep
+dj prune --dry-run --list                 # every orphan path, to eyeball or grep
 dj prune                                  # summary, confirm, move to Trash
 ```
 
