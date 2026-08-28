@@ -82,8 +82,32 @@ part way through, just run it again.
 
 ### Recovering a mistake
 
-Files go to the macOS Trash with their original locations recorded, so select
-them in Finder and use **Put Back**. Nothing is unlinked directly.
+Files go to the macOS Trash rather than being unlinked, so nothing is destroyed
+outright — but **Finder's "Put Back" does not work on them.** Put Back requires
+Finder to have recorded the original location, and `/usr/bin/trash` does not do
+that. This was claimed here before it was tested; it is not true.
+
+To restore, use `tools/restore-from-trash.py`, which reconstructs each file's
+original folder from the rekordbox exports and any saved `--report` file:
+
+```sh
+# list what the run moved (adjust the window to when you ran it)
+find ~/.Trash -maxdepth 1 -newerct '2026-08-28 22:20:00' \
+     ! -newerct '2026-08-28 22:35:00' > /tmp/trashed.txt
+
+tools/restore-from-trash.py --trash-list /tmp/trashed.txt            # dry run
+tools/restore-from-trash.py --trash-list /tmp/trashed.txt --apply    # restore
+```
+
+Restoring a file that is still absent from your rekordbox library means the next
+run will trash it again. Add it back to the library first, or hold off on
+pruning until you have decided.
+
+**Save a report every run.** `--report` is what makes restoration precise:
+
+```sh
+dj prune --report ~/DJ/prune-$(date +%Y%m%d-%H%M).txt
+```
 
 ## Design
 
