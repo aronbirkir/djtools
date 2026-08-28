@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,18 +326,6 @@ func TestBuildSymlinksAreNeverOrphans(t *testing.T) {
 	}
 }
 
-func TestBuildTracksNewestAudioModTime(t *testing.T) {
-	music := t.TempDir()
-	writeFile(t, filepath.Join(music, "House", "a.mp3"), 10)
-	p, err := buildPlan(collectionOf(), music, defaultExts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if p.NewestAudio.IsZero() {
-		t.Error("NewestAudio is zero, want the mod time of the newest audio file")
-	}
-}
-
 func TestBuildMissingMusicDirIsAnError(t *testing.T) {
 	if _, err := buildPlan(collectionOf(), filepath.Join(t.TempDir(), "nope"), defaultExts); err == nil {
 		t.Fatal("Build succeeded on a missing music directory, want error")
@@ -525,5 +514,53 @@ func TestBuildResolvesRelativeMusicDir(t *testing.T) {
 	// The whole point: Trash must accept what Build produced.
 	if _, errs := Trash(&fakeRunner{}, p.MusicDir, p.Orphans); len(errs) != 0 {
 		t.Errorf("Trash refused the plan's own orphans: %v", errs)
+	}
+}
+
+// underMusicDir is the one stage of the keep/orphan decision not arbitrated by
+// the kernel: it string-compares the decoded Location against the music root,
+// folding case and separators but not normalization form. If the root's own name
+// is stored in one form and the export spells it in the other, a genuinely
+// in-library file is classified foreign, never enters Library, and would be
+// trashed as an ordinary orphan.
+//
+// The run must abort rather than silently correct: Unresolved is the finding
+// --force cannot override, so this fails loud with an explanation.
+func TestBuildDetectsMisclassifiedMusicRoot(t *testing.T) {
+	parent := t.TempDir()
+
+	nfdRoot := "To\u0301nlist" // 'o' + U+0301 combining acute
+	nfcRoot := "T\u00f3nlist"  // precomposed U+00F3
+	requireDistinctSpellings(t, nfdRoot, nfcRoot)
+
+	diskRoot := filepath.Join(parent, nfdRoot)
+	writeFile(t, filepath.Join(diskRoot, "House", "keeper.mp3"), 100)
+
+	nfcTrack := filepath.Join(parent, nfcRoot, "House", "keeper.mp3")
+	if _, err := os.Stat(nfcTrack); err != nil {
+		t.Skipf("filesystem at %s is normalization-sensitive: %v", parent, err)
+	}
+
+	// Spelled alike, the file is simply a keeper.
+	alike, err := buildPlan(collectionOf(nfcTrack), filepath.Join(parent, nfcRoot), defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if alike.Keepers != 1 || len(alike.Orphans) != 0 {
+		t.Errorf("matching spellings: keepers=%d orphans=%v, want 1 and none",
+			alike.Keepers, alike.Orphans)
+	}
+
+	// Spelled differently, the mismatch must be recorded rather than acted on.
+	differing, err := buildPlan(collectionOf(nfcTrack), diskRoot, defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(differing.Unresolved) == 0 {
+		t.Fatalf("an in-library file was classified orphan with nothing recorded: it would be trashed. orphans=%v",
+			differing.Orphans)
+	}
+	if !strings.Contains(differing.Unresolved[0].Error(), "Unicode normalization") {
+		t.Errorf("the error should name the cause: %v", differing.Unresolved[0])
 	}
 }

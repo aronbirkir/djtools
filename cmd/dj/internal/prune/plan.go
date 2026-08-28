@@ -19,6 +19,11 @@ import (
 type Plan struct {
 	MusicDir string
 
+	// rootID identifies the music directory itself, used to catch a path that
+	// string comparison placed outside it but the kernel places inside.
+	rootID    FileID
+	rootIDSet bool
+
 	// Library maps each resolved library file to every Location spelling that
 	// pointed at it. The value is a slice rather than a single string so that
 	// duplicate rekordbox entries are surfaced instead of silently collapsed.
@@ -51,10 +56,6 @@ type Plan struct {
 	// Unresolved holds stat failures that were not ENOENT. Any entry here means
 	// the library set is incomplete and nothing may be deleted.
 	Unresolved []error
-
-	// NewestAudio is the newest mod time seen on disk, used to warn about a
-	// stale export.
-	NewestAudio time.Time
 
 	FolderTotals  map[string]int   // top-level folder -> on-disk audio count
 	FolderOrphans map[string]int   // top-level folder -> orphan count
@@ -116,6 +117,12 @@ func Build(c *rekordbox.Collection, musicDir string, exts []string, exportedAt t
 		FolderOrphans: make(map[string]int),
 		FolderBytes:   make(map[string]int64),
 	}
+	if info, err := os.Stat(musicDir); err == nil {
+		if id, ok := fileIDFromInfo(info); ok {
+			p.rootID, p.rootIDSet = id, true
+		}
+	}
+
 	p.resolveLibrary(c)
 	if err := p.walkDisk(exts, exportedAt); err != nil {
 		return nil, err
@@ -145,6 +152,12 @@ func (p *Plan) resolveLibrary(c *rekordbox.Collection) {
 			}
 		case rekordbox.KindForeign:
 			p.Foreign++
+			if p.rootIDSet && insideByStat(p.rootID, loc.Path) {
+				p.Unresolved = append(p.Unresolved, fmt.Errorf(
+					"library entry %s was classified as outside %s, but the kernel places it inside; "+
+						"the music directory's name may differ from the export by Unicode normalization",
+					loc.Path, p.MusicDir))
+			}
 		case rekordbox.KindNonFile:
 			p.NonFile++
 		case rekordbox.KindLocal:
@@ -222,10 +235,6 @@ func (p *Plan) walkDisk(exts []string, exportedAt time.Time) error {
 			return nil
 		}
 
-		if mod := info.ModTime(); mod.After(p.NewestAudio) {
-			p.NewestAudio = mod
-		}
-
 		folder := topFolder(p.MusicDir, path)
 		p.FolderTotals[folder]++
 
@@ -282,6 +291,28 @@ func (p *Plan) finalize() {
 	sort.Strings(p.Stale)
 	sort.Strings(p.Leftovers)
 	sort.Strings(p.Symlinks)
+}
+
+// insideByStat reports whether path lies inside the directory identified by
+// rootID, by walking its ancestors and asking the kernel.
+//
+// Classification compares path strings, folding case and separators but not
+// Unicode normalization form. That is safe while the music root's own name is
+// ASCII -- but a root named "Tónlist" could be stored in one form and spelled in
+// the export in the other, leaving a genuinely in-library file classified
+// foreign, absent from Library, and trashed as an ordinary orphan. Rather than
+// reimplement normalization, ask the filesystem.
+func insideByStat(rootID FileID, path string) bool {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		if info, err := os.Stat(dir); err == nil {
+			if id, ok := fileIDFromInfo(info); ok && id == rootID {
+				return true
+			}
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return false
+		}
+	}
 }
 
 // topFolder is the first path element below musicDir. That is the unit the

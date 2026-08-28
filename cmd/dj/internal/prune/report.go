@@ -17,6 +17,13 @@ const maxFolderRows = 25
 
 // Summary writes the human-facing report: a per-folder table, totals, and every
 // guard finding. It is what the user reads before confirming.
+//
+// Leftovers and Symlinks are printed here rather than surfaced as Findings.
+// Findings are judgments about whether the export can be trusted; these two are
+// inventory -- facts about what is on disk, which no guard acts on. The
+// consequence worth knowing: Check alone is not a complete account of what to
+// tell the user, so a future machine-readable output would need to include these
+// explicitly.
 func Summary(w io.Writer, p *Plan, findings []Finding) error {
 	if len(p.Orphans) == 0 {
 		if _, err := fmt.Fprintf(w,
