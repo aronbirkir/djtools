@@ -489,3 +489,41 @@ func TestBuildTopFolderForRootLevelFile(t *testing.T) {
 		t.Errorf(`FolderBytes["."] = %d, want 50`, p.FolderBytes["."])
 	}
 }
+
+// The CLI's documented default is a relative --music. Every path in the Plan
+// derives from it, and Trash refuses relative paths, so Build must resolve it or
+// a default invocation refuses its own orphan list. No existing test caught this
+// because t.TempDir() is already absolute.
+func TestBuildResolvesRelativeMusicDir(t *testing.T) {
+	music := t.TempDir()
+	writeFile(t, filepath.Join(music, "House", "orphan.mp3"), 10)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(cwd) })
+	if err := os.Chdir(filepath.Dir(music)); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := buildPlan(collectionOf(), filepath.Base(music), defaultExts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !filepath.IsAbs(p.MusicDir) {
+		t.Errorf("MusicDir = %q, want absolute", p.MusicDir)
+	}
+	for _, o := range p.Orphans {
+		if !filepath.IsAbs(o) {
+			t.Errorf("orphan %q is relative; Trash would refuse it", o)
+		}
+	}
+	if len(p.Orphans) != 1 {
+		t.Fatalf("Orphans = %v, want one", p.Orphans)
+	}
+	// The whole point: Trash must accept what Build produced.
+	if _, errs := Trash(&fakeRunner{}, p.MusicDir, p.Orphans); len(errs) != 0 {
+		t.Errorf("Trash refused the plan's own orphans: %v", errs)
+	}
+}

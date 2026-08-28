@@ -83,9 +83,25 @@ func TestTrashEmptyInputRunsNothing(t *testing.T) {
 }
 
 // A failing batch must not strand the batches after it.
+//
+// Real files back every path here, not the synthetic names paths() produces:
+// fakeRunner never actually deletes anything, so countMissing must find batch
+// 1's files still present (0 moved) and count all of batch 2 once it succeeds.
+// Synthetic paths under a directory that does not exist would look "missing"
+// to countMissing regardless of what fakeRunner did, proving nothing.
 func TestTrashContinuesPastAFailedBatch(t *testing.T) {
+	root := t.TempDir()
+	var created []string
+	for i := 0; i < 400; i++ {
+		path := filepath.Join(root, fmt.Sprintf("track%04d.mp3", i))
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		created = append(created, path)
+	}
+
 	r := &fakeRunner{failOn: 1}
-	done, errs := Trash(r, "/m", paths(400))
+	done, errs := Trash(r, root, created)
 	if len(errs) != 1 {
 		t.Fatalf("errs = %v, want exactly 1", errs)
 	}
@@ -94,6 +110,49 @@ func TestTrashContinuesPastAFailedBatch(t *testing.T) {
 	}
 	if len(r.calls) != 2 {
 		t.Errorf("calls = %d, want 2", len(r.calls))
+	}
+}
+
+// partialRunner deletes the first n paths it is given and then reports failure,
+// mimicking /usr/bin/trash, which moves what it can and still exits nonzero.
+type partialRunner struct{ removeFirst int }
+
+func (p *partialRunner) Run(_ string, args ...string) error {
+	for i, path := range args {
+		if i >= p.removeFirst {
+			break
+		}
+		os.Remove(path)
+	}
+	return errors.New("simulated partial failure")
+}
+
+// A failed batch must not be reported as zero files moved: the real binary was
+// observed moving a file and still exiting nonzero when a later path failed.
+func TestTrashCountsFilesMovedByAFailedBatch(t *testing.T) {
+	root := t.TempDir()
+
+	var created []string
+	for _, name := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		created = append(created, path)
+	}
+
+	done, errs := Trash(&partialRunner{removeFirst: 2}, root, created)
+	if len(errs) != 1 {
+		t.Fatalf("errs = %v, want exactly one batch error", errs)
+	}
+	if done != 2 {
+		t.Errorf("done = %d, want 2: files the batch did move must be counted", done)
+	}
+	if !strings.Contains(errs[0].Error(), "2 of 3 moved anyway") {
+		t.Errorf("error should report how many moved, got: %v", errs[0])
+	}
+	if !strings.Contains(errs[0].Error(), "a.mp3") {
+		t.Errorf("error should name the first file in the batch, got: %v", errs[0])
 	}
 }
 

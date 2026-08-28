@@ -100,7 +100,14 @@ func (p *Plan) OrphanPct() float64 {
 // exportedAt is when the XML was written. A zero value means unknown, which
 // disables the added-after-export skip.
 func Build(c *rekordbox.Collection, musicDir string, exts []string, exportedAt time.Time) (*Plan, error) {
-	musicDir = filepath.Clean(musicDir)
+	// Resolved absolute, not merely cleaned. Every path in the Plan derives from
+	// this one, and Trash refuses a relative path outright -- so a relative
+	// --music, which is the documented default, would otherwise leave the tool
+	// refusing its own orphan list.
+	musicDir, err := filepath.Abs(musicDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving music directory %q: %w", musicDir, err)
+	}
 	p := &Plan{
 		MusicDir:      musicDir,
 		Library:       make(map[FileID][]string),

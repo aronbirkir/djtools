@@ -4,9 +4,11 @@ package prune
 
 import "errors"
 
-// TrashPath is unused on platforms without a supported trash mechanism. It is
-// declared so the portable batching code and its tests still build.
-const TrashPath = "trash"
+// TrashPath is deliberately not a resolvable command. Nothing should reach it --
+// TrashAvailable refuses first -- but if that gate were ever skipped, a bare
+// name like "trash" would resolve through PATH and could invoke an unrelated
+// binary instead of failing closed.
+const TrashPath = ""
 
 // TrashAvailable always fails here: moving files to a recoverable trash is the
 // only deletion this tool will perform, and there is no verified way to do it

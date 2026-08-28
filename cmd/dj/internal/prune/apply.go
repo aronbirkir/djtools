@@ -1,6 +1,7 @@
 package prune
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -57,12 +58,39 @@ func Trash(r Runner, root string, paths []string) (int, []error) {
 		end := min(start+batchSize, len(paths))
 		batch := paths[start:end]
 		if err := r.Run(TrashPath, batch...); err != nil {
-			errs = append(errs, fmt.Errorf("trashing files %d-%d: %w", start+1, end, err))
+			// The trash binary reports one exit status for the whole batch but
+			// moves what it can: one bad path among 200 can leave 199 files
+			// genuinely gone while the batch still fails. Counting the batch as
+			// zero would tell the user nothing moved when almost everything did,
+			// so ask the filesystem rather than trusting the exit code.
+			moved := countMissing(batch)
+			done += moved
+			errs = append(errs, fmt.Errorf(
+				"trashing files %d-%d (%s ... %s): %d of %d moved anyway: %w",
+				start+1, end, filepath.Base(batch[0]), filepath.Base(batch[len(batch)-1]),
+				moved, len(batch), err))
 			continue
 		}
 		done += len(batch)
 	}
 	return done, errs
+}
+
+// countMissing reports how many of paths no longer exist, which after a failed
+// batch is how many the trash binary actually moved.
+//
+// A stat failure other than "does not exist" counts the file as still present.
+// Over-reporting what remains is the safe direction: the user re-runs and it
+// gets picked up, whereas over-reporting what moved would send them looking in
+// the Trash for something still on disk.
+func countMissing(paths []string) int {
+	var n int
+	for _, path := range paths {
+		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			n++
+		}
+	}
+	return n
 }
 
 // checkUnder reports whether path is a file strictly inside root.
@@ -72,6 +100,10 @@ func Trash(r Runner, root string, paths []string) (int, []error) {
 // being liberal costs a wasted syscall. This one decides whether to destroy a
 // file, so it errs the other way: anything it cannot prove is inside root is
 // refused.
+//
+// It checks the path lexically only. It assumes paths come from a filesystem
+// walk that never traverses symlinks and never yields directories, which is what
+// plan.walkDisk guarantees; it is not a general-purpose sandbox check.
 func checkUnder(root, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("path is not absolute: %q", path)
@@ -93,6 +125,7 @@ func checkUnder(root, path string) error {
 // alone: leftovers are reported rather than trashed, and removing them would
 // exceed what the user confirmed. root itself is never removed.
 func RemoveEmptyDirs(root string) ([]string, []error) {
+	root = filepath.Clean(root)
 	var dirs []string
 	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
