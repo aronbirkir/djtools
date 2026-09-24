@@ -123,7 +123,9 @@ Windows/Linux equivalents, as in mp3renamer). It is saved whenever a path, optio
 theme changes.
 
 Reports go to `~/Library/Application Support/djtools/reports/prune-YYYYMMDD-HHMMSS.txt`.
-They don't go next to the XML because that directory belongs to rekordbox.
+They don't go next to the XML because that directory belongs to rekordbox. If a
+report with that name already exists (two runs in the same second), the name gets
+`-2`, `-3` and so on before `.txt`, so a report is never overwritten.
 
 ### Rekordbox Prune screen
 
@@ -172,16 +174,21 @@ The sidebar entry and screen title are both "Rekordbox Prune" (shortened in the 
 - **The Trash button is enabled only when** the state is Scanned, there is at least
   one orphan, and `Result.CanApply(override)` returns nil.
 - **The override checkbox is shown only when** there are forceable findings, there
-  are no blocked findings, and Music is not exactly `~/Music` (compared after
+  are no blocked findings, and Music is neither `~/Music` nor a folder containing
+  it, such as `~`, `/Users` or `/` (compared case-insensitively after
   `filepath.Clean` and expanding `~`). An unforceable finding shows "cannot be
-  overridden". For the `~/Music` case the app says "point Music at your rekordbox
-  folder, not ~/Music". Both of those leave no way to trash from the app.
+  overridden". For the `~/Music` case the app says overrides are not offered for
+  ~/Music or a folder containing it, and to point Music at the rekordbox folder.
+  Both of those leave no way to trash from the app.
 - **Confirming** is an in-window modal: "Move N files (size) to the Trash? A report
   will be saved to <path>." The buttons are Cancel (default, Esc) and Move to Trash.
 - **Done** shows moved M of N, directories removed, any trash or directory errors,
   and the report path with **Show in Finder** (`open -R`). It also notes that
   Finder's Put Back does not work and points to `tools/restore-from-trash.py`.
   Scanning again starts over.
+- Closing the window during **Trashing** does not stop the run: the app waits for
+  `Apply` to finish (logging that it is doing so) before exiting, so a run never
+  stops between batches.
 
 The rules above live in `prune_state.go` as plain Go, with no Gio types, so they
 can be unit tested.

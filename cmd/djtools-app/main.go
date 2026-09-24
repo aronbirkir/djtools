@@ -59,6 +59,12 @@ func run(window *app.Window) error {
 	for {
 		switch e := window.Event().(type) {
 		case app.DestroyEvent:
+			// Returning exits the process, which would stop prune.Apply
+			// between batches; let a trash run finish first.
+			if ui.prune.state.phase == phaseTrashing {
+				log.Print("finishing the trash run before exiting")
+			}
+			ui.prune.wg.Wait()
 			return e.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)

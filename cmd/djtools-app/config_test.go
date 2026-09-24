@@ -89,3 +89,21 @@ func TestSaveConfigRoundTrip(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got, cfg)
 	}
 }
+
+func TestUniqueReportPath(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 9, 24, 15, 30, 12, 0, time.Local)
+	base := filepath.Join(dir, "prune-20260924-153012")
+	if got := uniqueReportPath(dir, at); got != base+".txt" {
+		t.Fatalf("first = %q", got)
+	}
+	for _, want := range []string{base + "-2.txt", base + "-3.txt"} {
+		prev := uniqueReportPath(dir, at)
+		if err := os.WriteFile(prev, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := uniqueReportPath(dir, at); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+}

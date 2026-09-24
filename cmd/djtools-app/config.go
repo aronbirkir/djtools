@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,6 +43,21 @@ func reportsDir() (string, error) {
 
 func reportPath(dir string, now time.Time) string {
 	return filepath.Join(dir, "prune-"+now.Format("20060102-150405")+".txt")
+}
+
+// uniqueReportPath is reportPath, with -2, -3, ... before .txt when a report
+// from the same second already exists, so a run never overwrites another's.
+func uniqueReportPath(dir string, now time.Time) string {
+	path := reportPath(dir, now)
+	base := strings.TrimSuffix(path, ".txt")
+	for n := 2; ; n++ {
+		// Any Lstat error ends the search: if the path is unusable for another
+		// reason, writing the report fails and nothing is moved.
+		if _, err := os.Lstat(path); err != nil {
+			return path
+		}
+		path = fmt.Sprintf("%s-%d.txt", base, n)
+	}
 }
 
 func defaultConfig() Config {
