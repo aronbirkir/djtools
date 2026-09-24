@@ -28,7 +28,7 @@ build:
 	go build -o $(DIST)/djtools-app $(APP_PKG)
 
 test:
-	go test ./...
+	go test -race ./...
 
 icon:
 	go generate $(APP_PKG)

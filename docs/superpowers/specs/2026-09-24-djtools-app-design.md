@@ -113,10 +113,13 @@ These apply only when no config file exists yet:
 | --- | --- |
 | XML | macOS `~/Library/Pioneer/rekordbox/rekordbox.xml`; Windows `%AppData%\Pioneer\rekordbox\rekordbox.xml` |
 | Music | `~/Music/rekordbox` |
-| Extensions | the CLI's `defaultExtensions` |
+| Extensions | `prune.DefaultExtensions` |
 | Max orphan % | `DefaultMaxOrphanPct` |
 | Keep empty dirs | off |
 | Theme | System |
+
+Like the CLI, the app only scans on macOS: `Scan` checks `Supported()` first. The
+Windows XML default exists for when that changes.
 
 The config lives at `~/Library/Application Support/djtools/config.json` (and its
 Windows/Linux equivalents, as in mp3renamer). It is saved whenever a path, option or
@@ -153,7 +156,10 @@ The sidebar entry and screen title are both "Rekordbox Prune" (shortened in the 
 
 - The Browse buttons open zenity pickers (a file picker for the XML, a directory
   picker for Music) off the UI goroutine, the same way mp3renamer does.
-- Abort findings are shown in the error colour and warnings in amber. Clicking
+- Abort findings are shown in the error colour and warnings in amber. The screen
+  lists at most `maxFindingLines` (6), aborts first, then "(+N more findings; see
+  the Details tab)". The Details tab starts with a "Findings" section listing every
+  finding, because the saved report does not include them. Clicking
   "details" expands the full lists (dead links, case dupes, stale paths, recently
   added, leftovers, symlinks).
 - The orphan list is virtualised with `widget.List`. Paths are shown relative to

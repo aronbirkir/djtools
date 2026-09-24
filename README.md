@@ -60,7 +60,8 @@ Flags:
 | `--keep-empty-dirs` | off | leave emptied directories in place |
 
 Exit codes: `0` success, `1` stopped (guard abort, declined, or usage error),
-`2` files were trashed but some batches failed.
+`2` files were trashed but some batches failed. If rekordbox.xml is rewritten
+while the confirmation prompt is open, the run stops with exit `1`, moving nothing.
 
 ### Platform support
 
@@ -128,10 +129,13 @@ Differences from the CLI:
   `~/Library/Pioneer/rekordbox/rekordbox.xml`, and `~/Music/rekordbox`. After the
   first run it uses whatever you last chose.
 - An overridable finding (the CLI's `--force`) needs the "I understand" checkbox.
-  It is never offered when the music folder is `~/Music` itself.
+  It is never offered when the music folder is `~/Music` or a folder containing it.
 - Every real run saves a report to
   `~/Library/Application Support/djtools/reports/` before moving anything, and
   won't move anything if the report can't be written.
+- To undo a run, copy its report to `/tmp/prune-report.txt` and follow
+  [Recovering a mistake](#recovering-a-mistake). The restore script currently
+  assumes the collection lives in `~/DJ` (music in `~/DJ/music`).
 - Settings live in `~/Library/Application Support/djtools/config.json`. Delete it
   to reset.
 
