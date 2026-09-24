@@ -19,9 +19,9 @@ const (
 	exitPartial = 2 // files were trashed but some batches failed
 )
 
-// defaultExtensions covers what rekordbox can hold. Only .mp3 exists in the
+// DefaultExtensions covers what rekordbox can hold. Only .mp3 exists in the
 // reference collection, but the Sampler entries are .wav.
-const defaultExtensions = ".mp3,.wav,.aiff,.flac,.m4a"
+const DefaultExtensions = ".mp3,.wav,.aiff,.flac,.m4a"
 
 type options struct {
 	xmlPath       string
@@ -43,7 +43,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	fs.SetOutput(stderr)
 	fs.StringVar(&opts.xmlPath, "xml", "rekordbox.xml", "rekordbox XML export")
 	fs.StringVar(&opts.musicDir, "music", "music", "music folder to prune")
-	fs.StringVar(&opts.extensions, "ext", defaultExtensions, "comma-separated audio extensions")
+	fs.StringVar(&opts.extensions, "ext", DefaultExtensions, "comma-separated audio extensions")
 	fs.BoolVar(&opts.dryRun, "dry-run", false, "scan and report, never trash")
 	fs.BoolVar(&opts.assumeYes, "yes", false, "skip the confirmation prompt")
 	fs.BoolVar(&opts.force, "force", false, "proceed despite abort-level guard findings")
@@ -137,7 +137,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		}
 	}
 	if opts.reportPath != "" {
-		if err := writeReportFile(opts.reportPath, plan); err != nil {
+		if err := WriteReportFile(opts.reportPath, plan); err != nil {
 			fmt.Fprintf(stderr, "dj prune: %v\n", err)
 			return exitStopped
 		}
@@ -201,22 +201,10 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	return exitOK
 }
 
-func writeReportFile(path string, p *Plan) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := Report(f, p); err != nil {
-		return err
-	}
-	return f.Close()
-}
-
 // confirm asks once. Anything other than an explicit yes means no, so a stray
 // newline or a closed stdin can never authorise a deletion.
 func confirm(in io.Reader, out io.Writer, count int, size int64) bool {
-	fmt.Fprintf(out, "\nMove %d files (%s) to the Trash? [y/N] ", count, humanBytes(size))
+	fmt.Fprintf(out, "\nMove %d files (%s) to the Trash? [y/N] ", count, HumanBytes(size))
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(out)

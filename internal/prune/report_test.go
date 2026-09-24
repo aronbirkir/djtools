@@ -189,8 +189,8 @@ func TestHumanBytes(t *testing.T) {
 		{1500, "1.5 kB"},
 		{35_900_000_000, "35.9 GB"},
 	} {
-		if got := humanBytes(tt.in); got != tt.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tt.in, got, tt.want)
+		if got := HumanBytes(tt.in); got != tt.want {
+			t.Errorf("HumanBytes(%d) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }
