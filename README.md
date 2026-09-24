@@ -109,6 +109,32 @@ pruning until you have decided.
 dj prune --report ~/DJ/prune-$(date +%Y%m%d-%H%M).txt
 ```
 
+## Desktop app
+
+`cmd/djtools-app` is a Gio desktop app with the same look as MP3 Renamer. Its first
+tool, **Rekordbox Prune**, is `dj prune` with a window: pick the export and the music
+folder, scan, read the findings and orphan list, and confirm. It runs the same checks
+as the CLI (the shared `prune.Scan` / `prune.Apply`), so nothing the CLI would refuse
+can be trashed from the app.
+
+```sh
+make run      # run from source
+make macos    # dist/macos/djtools.app (universal)
+```
+
+Differences from the CLI:
+
+- The defaults are rekordbox's own export location,
+  `~/Library/Pioneer/rekordbox/rekordbox.xml`, and `~/Music/rekordbox`. After the
+  first run it uses whatever you last chose.
+- An overridable finding (the CLI's `--force`) needs the "I understand" checkbox.
+  It is never offered when the music folder is `~/Music` itself.
+- Every real run saves a report to
+  `~/Library/Application Support/djtools/reports/` before moving anything, and
+  won't move anything if the report can't be written.
+- Settings live in `~/Library/Application Support/djtools/config.json`. Delete it
+  to reset.
+
 ## Design
 
 See `docs/superpowers/specs/` — the specs record the measured state of the collection and
