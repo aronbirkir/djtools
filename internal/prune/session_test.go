@@ -229,8 +229,12 @@ func TestApplyUnwritableReportTrashesNothing(t *testing.T) {
 	report := filepath.Join(xml, "report.txt")
 	runner := &fakeRunner{}
 
-	if _, err := Apply(r, runner, false, report); err == nil {
-		t.Error("Apply succeeded with an unwritable report path")
+	_, err := Apply(r, runner, false, report)
+	if err == nil {
+		t.Fatal("Apply succeeded with an unwritable report path")
+	}
+	if !strings.Contains(err.Error(), "writing the report") {
+		t.Errorf("Apply err = %v, want it to mention writing the report", err)
 	}
 	if len(runner.calls) != 0 {
 		t.Errorf("trash ran %d times although the report could not be written", len(runner.calls))
@@ -279,5 +283,55 @@ func TestApplyEmptyDirs(t *testing.T) {
 		if !keep && (len(res.RemovedDirs) != 1 || statErr == nil) {
 			t.Errorf("keep=false removed %v, want the one empty directory", res.RemovedDirs)
 		}
+	}
+}
+
+func TestApplyIgnoresTamperedFindings(t *testing.T) {
+	requireTrash(t)
+
+	t.Run("blocked", func(t *testing.T) {
+		music, xml := fixture(t, 600, 1)
+		addUnresolvableEntry(t, music, xml)
+		r := mustScan(t, scanOptions(music, xml))
+		r.Findings = nil
+		runner := &fakeRunner{}
+
+		if _, err := Apply(r, runner, true, ""); !errors.Is(err, ErrBlocked) {
+			t.Errorf("Apply = %v, want ErrBlocked", err)
+		}
+		if len(runner.calls) != 0 {
+			t.Errorf("trash ran %d times despite the blocked finding", len(runner.calls))
+		}
+	})
+
+	t.Run("forceable", func(t *testing.T) {
+		music, xml := fixture(t, 600, 5)
+		opts := scanOptions(music, xml)
+		opts.MaxOrphanPct = 0.1
+		r := mustScan(t, opts)
+		r.Findings = nil
+		runner := &fakeRunner{}
+
+		if _, err := Apply(r, runner, false, ""); !errors.Is(err, ErrNeedsForce) {
+			t.Errorf("Apply = %v, want ErrNeedsForce", err)
+		}
+		if len(runner.calls) != 0 {
+			t.Errorf("trash ran %d times without an override", len(runner.calls))
+		}
+	})
+}
+
+func TestApplyRejectsIncompleteResult(t *testing.T) {
+	requireTrash(t)
+	runner := &fakeRunner{}
+
+	if _, err := Apply(nil, runner, true, ""); err == nil {
+		t.Error("Apply(nil, ...) = nil error, want one")
+	}
+	if _, err := Apply(&Result{}, runner, true, ""); err == nil {
+		t.Error("Apply(&Result{}, ...) = nil error, want one")
+	}
+	if len(runner.calls) != 0 {
+		t.Errorf("trash ran %d times against an incomplete result", len(runner.calls))
 	}
 }

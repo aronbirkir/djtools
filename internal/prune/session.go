@@ -165,14 +165,24 @@ type ApplyResult struct {
 //
 // It re-checks every gate itself rather than trusting its caller: a UI that
 // forgot to disable a button, or a CLI path that skipped a check, must still
-// be unable to trash what the guards refused. If reportPath is set, the report
-// is written first and a failure to write it stops the run before anything
+// be unable to trash what the guards refused. It re-evaluates the guards from
+// the plan itself rather than trusting r.Findings, so a caller that altered
+// Findings still cannot get past them. If reportPath is set, the report is
+// written first and a failure to write it stops the run before anything
 // moves, since the report is what makes a restore precise.
 func Apply(r *Result, runner Runner, force bool, reportPath string) (*ApplyResult, error) {
 	if err := TrashAvailable(); err != nil {
 		return nil, err
 	}
-	if err := r.CanApply(force); err != nil {
+	if r == nil || r.Plan == nil || r.Collection == nil {
+		return nil, errors.New("no completed scan to apply")
+	}
+	fresh := *r
+	fresh.Findings = Check(r.Plan, r.Collection, GuardOptions{
+		MaxOrphanPct: r.Options.MaxOrphanPct,
+		MinLibrary:   DefaultMinLibrary,
+	})
+	if err := fresh.CanApply(force); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(r.Options.XMLPath)
