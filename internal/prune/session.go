@@ -57,7 +57,7 @@ var (
 	// not.
 	ErrNeedsForce = errors.New("these findings stop the run unless overridden")
 	// ErrXMLChanged means the export was rewritten after the scan.
-	ErrXMLChanged = errors.New("the rekordbox XML changed after the scan; scan again")
+	ErrXMLChanged = errors.New("the rekordbox XML changed after it was read; nothing was moved, run again")
 )
 
 // Scan reads the export, walks the music folder and evaluates every guard. It
@@ -135,15 +135,16 @@ func (r *Result) Forceable() []Finding {
 // has explicitly overridden the forceable findings.
 func (r *Result) CanApply(force bool) error {
 	if b := r.Blocked(); len(b) > 0 {
-		return fmt.Errorf("%w: %s", ErrBlocked, findingMessages(b))
+		return fmt.Errorf("%w: %s", ErrBlocked, FindingMessages(b))
 	}
 	if f := r.Forceable(); len(f) > 0 && !force {
-		return fmt.Errorf("%w: %s", ErrNeedsForce, findingMessages(f))
+		return fmt.Errorf("%w: %s", ErrNeedsForce, FindingMessages(f))
 	}
 	return nil
 }
 
-func findingMessages(findings []Finding) string {
+// FindingMessages joins the findings' messages with "; ".
+func FindingMessages(findings []Finding) string {
 	msgs := make([]string, len(findings))
 	for i, f := range findings {
 		msgs[i] = f.Message

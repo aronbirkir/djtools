@@ -194,3 +194,11 @@ func TestHumanBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestFoldersByOrphans(t *testing.T) {
+	p := &Plan{FolderOrphans: map[string]int{"House": 120, "Techno": 88, "Disco": 88}}
+	got := strings.Join(FoldersByOrphans(p), ",")
+	if got != "House,Disco,Techno" {
+		t.Errorf("FoldersByOrphans = %q", got)
+	}
+}

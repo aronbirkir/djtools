@@ -16,6 +16,23 @@ import (
 // so nothing is concealed -- and --report still lists every path.
 const maxFolderRows = 25
 
+// FoldersByOrphans returns the plan's top-level folders with orphans, most
+// affected first, ties broken by name so output is stable.
+func FoldersByOrphans(p *Plan) []string {
+	folders := make([]string, 0, len(p.FolderOrphans))
+	for name := range p.FolderOrphans {
+		folders = append(folders, name)
+	}
+	sort.Slice(folders, func(i, j int) bool {
+		a, b := folders[i], folders[j]
+		if p.FolderOrphans[a] != p.FolderOrphans[b] {
+			return p.FolderOrphans[a] > p.FolderOrphans[b]
+		}
+		return a < b
+	})
+	return folders
+}
+
 // Summary writes the human-facing report: a per-folder table, totals, and every
 // guard finding. It is what the user reads before confirming.
 //
@@ -35,18 +52,7 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 		return writeFindings(w, findings)
 	}
 
-	folders := make([]string, 0, len(p.FolderOrphans))
-	for name := range p.FolderOrphans {
-		folders = append(folders, name)
-	}
-	// Most affected first; ties broken by name so output is stable.
-	sort.Slice(folders, func(i, j int) bool {
-		a, b := folders[i], folders[j]
-		if p.FolderOrphans[a] != p.FolderOrphans[b] {
-			return p.FolderOrphans[a] > p.FolderOrphans[b]
-		}
-		return a < b
-	})
+	folders := FoldersByOrphans(p)
 
 	shown := folders
 	if len(shown) > maxFolderRows {

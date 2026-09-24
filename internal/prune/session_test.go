@@ -335,3 +335,10 @@ func TestApplyRejectsIncompleteResult(t *testing.T) {
 		t.Errorf("trash ran %d times against an incomplete result", len(runner.calls))
 	}
 }
+
+func TestFindingMessages(t *testing.T) {
+	got := FindingMessages([]Finding{{Message: "a"}, {Message: "b"}})
+	if got != "a; b" {
+		t.Errorf("FindingMessages = %q", got)
+	}
+}

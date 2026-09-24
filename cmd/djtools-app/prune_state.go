@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -232,8 +231,11 @@ type detailRow struct {
 	text    string
 }
 
-// detailRows flattens the plan's inventory lists into one scrollable list.
-func detailRows(p *prune.Plan) []detailRow {
+// detailRows flattens every finding, then the plan's inventory lists, into one
+// scrollable list. The findings come first because the screen caps them at
+// maxFindingLines and points here for the rest; the saved report has none.
+func detailRows(r *prune.Result) []detailRow {
+	p := r.Plan
 	var rows []detailRow
 	section := func(title string, items []string) {
 		if len(items) == 0 {
@@ -244,6 +246,15 @@ func detailRows(p *prune.Plan) []detailRow {
 			rows = append(rows, detailRow{text: item})
 		}
 	}
+	var findings []string
+	for _, fl := range findingLines(r.Findings, len(r.Findings)) {
+		prefix := "Warning: "
+		if fl.abort {
+			prefix = "Stops the run: "
+		}
+		findings = append(findings, prefix+fl.text)
+	}
+	section("Findings", findings)
 	section("Skipped: newer than the export", p.RecentlyAdded)
 	section("Dead links: in the library, missing on disk", p.DeadLinks)
 	section("Stale Windows paths in the library", p.Stale)
@@ -260,20 +271,10 @@ func detailRows(p *prune.Plan) []detailRow {
 // folderLine summarises the n folders with the most orphans, ordered as the
 // CLI's table is: most orphans first, ties by name.
 func folderLine(p *prune.Plan, n int) string {
-	names := make([]string, 0, len(p.FolderOrphans))
-	for name := range p.FolderOrphans {
-		names = append(names, name)
-	}
+	names := prune.FoldersByOrphans(p)
 	if len(names) == 0 {
 		return ""
 	}
-	sort.Slice(names, func(i, j int) bool {
-		a, b := names[i], names[j]
-		if p.FolderOrphans[a] != p.FolderOrphans[b] {
-			return p.FolderOrphans[a] > p.FolderOrphans[b]
-		}
-		return a < b
-	})
 	shown := names[:min(n, len(names))]
 	parts := make([]string, len(shown))
 	for i, name := range shown {
@@ -318,18 +319,10 @@ func findingLines(findings []prune.Finding, max int) []findingLine {
 			noun = "finding"
 		}
 		out = append(out[:max:max], findingLine{
-			text: fmt.Sprintf("(+%d more %s in the report)", rest, noun), more: true,
+			text: fmt.Sprintf("(+%d more %s; see the Details tab)", rest, noun), more: true,
 		})
 	}
 	return out
-}
-
-func findingMessages(findings []prune.Finding) string {
-	msgs := make([]string, len(findings))
-	for i, f := range findings {
-		msgs[i] = f.Message
-	}
-	return strings.Join(msgs, "; ")
 }
 
 // safely runs f, turning a panic into an error so a bug in a worker goroutine

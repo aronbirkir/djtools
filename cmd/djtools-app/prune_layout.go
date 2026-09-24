@@ -368,7 +368,7 @@ func (v *pruneView) layoutModal(gtx C, th *material.Theme) D {
 								return D{}
 							}
 							return layout.Inset{Top: 10}.Layout(gtx, label(th,
-								"You are overriding: "+findingMessages(v.state.result.Forceable()), pal.Error))
+								"You are overriding: "+prune.FindingMessages(v.state.result.Forceable()), pal.Error))
 						}),
 						vspace(18),
 						layout.Rigid(func(gtx C) D {

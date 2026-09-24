@@ -236,8 +236,11 @@ func TestDetailRows(t *testing.T) {
 		DeadLinks: []string{"/d1"},
 		CaseDupes: [][]string{{"/a/X.mp3", "/a/x.mp3"}},
 	}
-	rows := detailRows(p)
+	rows := detailRows(&prune.Result{Plan: p, Findings: []prune.Finding{warning, forceable}})
 	want := []detailRow{
+		{heading: true, text: "Findings (2)"},
+		{text: "Stops the run: orphan share too high"},
+		{text: "Warning: 3 dead links"},
 		{heading: true, text: "Dead links: in the library, missing on disk (1)"},
 		{text: "/d1"},
 		{heading: true, text: "One file, several library spellings (1)"},
@@ -280,11 +283,8 @@ func TestFindingLines(t *testing.T) {
 		t.Errorf("aborts should come first: %+v", lines)
 	}
 	capped := findingLines(findings, 2)
-	if len(capped) != 3 || !capped[2].more || capped[2].text != "(+1 more finding in the report)" {
+	if len(capped) != 3 || !capped[2].more || capped[2].text != "(+1 more finding; see the Details tab)" {
 		t.Errorf("capped = %+v", capped)
-	}
-	if got := findingMessages([]prune.Finding{forceable, blocked}); got != "orphan share too high; library unresolved" {
-		t.Errorf("findingMessages = %q", got)
 	}
 }
 

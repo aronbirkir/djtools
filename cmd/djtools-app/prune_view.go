@@ -27,8 +27,9 @@ const (
 	tabDetails
 )
 
-const restoreHint = "Finder's Put Back does not work for files moved this way. To restore them, " +
-	"run tools/restore-from-trash.py from the djtools repo (see \"Recovering a mistake\" in its README)."
+const restoreHint = "Finder's Put Back does not work for files moved this way. To restore, copy this " +
+	"run's report to /tmp/prune-report.txt and run tools/restore-from-trash.py from the djtools repo; " +
+	"it currently assumes the collection lives in ~/DJ."
 
 // pruneView is the Rekordbox Prune screen: its widgets, plus the pruneState
 // that decides what they may do.
@@ -338,7 +339,7 @@ func (v *pruneView) refreshList() {
 	}
 	p := v.state.result.Plan
 	v.filtered = filterOrphans(p.Orphans, p.MusicDir, v.filter.Text())
-	v.details = detailRows(p)
+	v.details = detailRows(v.state.result)
 }
 
 func (v *pruneView) status() (string, color.NRGBA) {
