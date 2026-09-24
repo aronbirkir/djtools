@@ -69,6 +69,15 @@ func (s *pruneState) fail(err error) {
 	s.phase, s.err = phaseError, err
 }
 
+// notice shows err beside the current scan without discarding it, for
+// problems that moved nothing, such as not finding a place for the report.
+func (s *pruneState) notice(err error) {
+	if s.busy() {
+		return
+	}
+	s.err = err
+}
+
 func (s *pruneState) startScan() bool {
 	if s.busy() {
 		return false
@@ -86,25 +95,35 @@ func (s *pruneState) scanDone(r *prune.Result, err error) {
 	s.phase, s.result = phaseScanned, r
 }
 
-func (s *pruneState) isMusicHome() bool {
+// coversMusicHome reports whether the scanned folder is ~/Music or contains
+// it (home, /Users, /), so that everything in ~/Music would count as orphans.
+func (s *pruneState) coversMusicHome() bool {
 	if s.result == nil || s.result.Plan == nil || s.musicHome == "" {
 		return false
 	}
-	return strings.EqualFold(filepath.Clean(s.result.Plan.MusicDir), filepath.Clean(s.musicHome))
+	dir := strings.ToLower(filepath.Clean(s.result.Plan.MusicDir))
+	home := strings.ToLower(filepath.Clean(s.musicHome))
+	if dir == home {
+		return true
+	}
+	rel, err := filepath.Rel(dir, home)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // overrideAllowed reports whether the forceable findings may be overridden at
-// all: there must be some, nothing unforceable, and Music must not be ~/Music.
+// all: there must be some, nothing unforceable, and Music must not be ~/Music
+// or a folder containing it.
 func (s *pruneState) overrideAllowed() bool {
 	r := s.result
-	return r != nil && len(r.Forceable()) > 0 && len(r.Blocked()) == 0 && !s.isMusicHome()
+	return r != nil && len(r.Forceable()) > 0 && len(r.Blocked()) == 0 && !s.coversMusicHome()
 }
 
 // overrideRefusedForHome reports whether the only thing withholding the
-// override is the ~/Music rule, so the screen can say so.
+// override is the ~/Music rule (~/Music or a folder containing it), so the
+// screen can say so.
 func (s *pruneState) overrideRefusedForHome() bool {
 	r := s.result
-	return r != nil && len(r.Forceable()) > 0 && len(r.Blocked()) == 0 && s.isMusicHome()
+	return r != nil && len(r.Forceable()) > 0 && len(r.Blocked()) == 0 && s.coversMusicHome()
 }
 
 func (s *pruneState) showOverride() bool {

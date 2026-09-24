@@ -298,3 +298,75 @@ func TestSafelyRecoversPanic(t *testing.T) {
 		t.Errorf("safely = %v, %v", v, err)
 	}
 }
+
+func TestTrashingIgnoresInputsFailAndScan(t *testing.T) {
+	s := scanned(resultWith(rbMusic, 3))
+	s.askConfirm()
+	if _, _, ok := s.startTrash(); !ok {
+		t.Fatal("startTrash refused a confirmed healthy scan")
+	}
+	s.inputsChanged()
+	s.fail(errors.New("x"))
+	if s.startScan() {
+		t.Error("startScan accepted while trashing")
+	}
+	if s.phase != phaseTrashing || s.result == nil {
+		t.Errorf("while trashing: phase %v, result %v", s.phase, s.result)
+	}
+}
+
+func TestStartTrashRechecksOverride(t *testing.T) {
+	s := scanned(resultWith(rbMusic, 3, forceable))
+	s.override = true
+	s.askConfirm()
+	if s.phase != phaseConfirming {
+		t.Fatalf("phase %v, want confirming", s.phase)
+	}
+	s.override = false
+	if _, _, ok := s.startTrash(); ok {
+		t.Error("startTrash went ahead after the override was cleared")
+	}
+	if s.phase != phaseScanned {
+		t.Errorf("phase %v, want scanned", s.phase)
+	}
+}
+
+func TestForceFalseOnMusicHome(t *testing.T) {
+	s := scanned(resultWith(homeMusic, 3, forceable))
+	s.override = true
+	if s.force() {
+		t.Error("force() true for ~/Music")
+	}
+}
+
+func TestNoOverrideForAncestorsOfMusicHome(t *testing.T) {
+	for _, dir := range []string{"/Users/me", "/Users", "/", "/users/ME/"} {
+		s := scanned(resultWith(dir, 3, forceable))
+		if s.showOverride() || !s.overrideRefusedForHome() {
+			t.Errorf("%q: override should be refused for a folder containing ~/Music", dir)
+		}
+		s.override = true
+		if s.force() || s.canTrash() {
+			t.Errorf("%q: trashable through an override", dir)
+		}
+	}
+	for _, dir := range []string{rbMusic, "/Users/me/Musical"} {
+		s := scanned(resultWith(dir, 3, forceable))
+		if !s.showOverride() || s.overrideRefusedForHome() {
+			t.Errorf("%q: override should be offered", dir)
+		}
+	}
+}
+
+func TestNoticeKeepsScan(t *testing.T) {
+	r := resultWith(rbMusic, 3)
+	s := scanned(r)
+	err := errors.New("no reports folder")
+	s.notice(err)
+	if s.phase != phaseScanned || s.result != r || s.err != err {
+		t.Errorf("after notice: phase %v, result %v, err %v", s.phase, s.result, s.err)
+	}
+	if !s.canTrash() {
+		t.Error("a notice should not stop a later attempt")
+	}
+}
