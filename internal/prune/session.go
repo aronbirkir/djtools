@@ -150,3 +150,48 @@ func findingMessages(findings []Finding) string {
 	}
 	return strings.Join(msgs, "; ")
 }
+
+// ApplyResult is what a completed Apply did. A partial trash failure is not an
+// error: files already moved stay moved, and the failures are listed here.
+type ApplyResult struct {
+	Moved, Total int
+	TrashErrs    []error
+	RemovedDirs  []string
+	DirErrs      []error
+	ReportPath   string
+}
+
+// Apply moves the result's orphans to the Trash.
+//
+// It re-checks every gate itself rather than trusting its caller: a UI that
+// forgot to disable a button, or a CLI path that skipped a check, must still
+// be unable to trash what the guards refused. If reportPath is set, the report
+// is written first and a failure to write it stops the run before anything
+// moves, since the report is what makes a restore precise.
+func Apply(r *Result, runner Runner, force bool, reportPath string) (*ApplyResult, error) {
+	if err := TrashAvailable(); err != nil {
+		return nil, err
+	}
+	if err := r.CanApply(force); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(r.Options.XMLPath)
+	if err != nil {
+		return nil, fmt.Errorf("re-checking %s: %w", r.Options.XMLPath, err)
+	}
+	if !info.ModTime().Equal(r.XMLModTime) {
+		return nil, ErrXMLChanged
+	}
+	if reportPath != "" {
+		if err := WriteReportFile(reportPath, r.Plan); err != nil {
+			return nil, fmt.Errorf("writing the report, so nothing was moved: %w", err)
+		}
+	}
+
+	res := &ApplyResult{Total: len(r.Plan.Orphans), ReportPath: reportPath}
+	res.Moved, res.TrashErrs = Trash(runner, r.Plan.MusicDir, r.Plan.Orphans)
+	if !r.Options.KeepEmptyDirs {
+		res.RemovedDirs, res.DirErrs = RemoveEmptyDirs(r.Plan.MusicDir)
+	}
+	return res, nil
+}
