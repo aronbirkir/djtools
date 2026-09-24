@@ -38,16 +38,22 @@ type appUI struct {
 	themeMode    ThemeMode
 	themeButtons [3]widget.Clickable
 	sysTheme     systemTheme
+	prune        *pruneView
 }
 
 func run(window *app.Window) error {
 	th := newTheme()
 	var ops op.Ops
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
 	ui := &appUI{window: window, cfg: loadConfig()}
 	ui.themeMode = ui.cfg.Theme
 	if ui.themeMode == "" {
 		ui.themeMode = ThemeSystem
 	}
+	ui.prune = newPruneView(window, ui.cfg, home, ui.saveConfig)
 	ui.sysTheme.watch(window)
 
 	for {
@@ -65,6 +71,7 @@ func run(window *app.Window) error {
 }
 
 func (ui *appUI) saveConfig() {
+	ui.prune.fillConfig(&ui.cfg)
 	ui.cfg.Theme = ui.themeMode
 	if err := saveConfig(ui.cfg); err != nil {
 		log.Printf("saving config: %v", err)
@@ -78,15 +85,22 @@ func (ui *appUI) update(gtx C) {
 			ui.saveConfig()
 		}
 	}
+	ui.prune.update(gtx)
 }
 
 func (ui *appUI) Layout(gtx C, th *material.Theme) D {
 	fill(gtx, pal.Bg)
 	gtx.Constraints.Min = gtx.Constraints.Max
-	return layout.Flex{}.Layout(gtx,
+	layout.Flex{}.Layout(gtx,
 		layout.Rigid(func(gtx C) D { return ui.layoutSidebar(gtx, th) }),
-		layout.Flexed(1, func(gtx C) D { return D{Size: gtx.Constraints.Max} }),
+		layout.Flexed(1, func(gtx C) D {
+			return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx C) D {
+				return ui.prune.Layout(gtx, th)
+			})
+		}),
 	)
+	ui.prune.layoutModal(gtx, th)
+	return D{Size: gtx.Constraints.Max}
 }
 
 func (ui *appUI) layoutSidebar(gtx C, th *material.Theme) D {
