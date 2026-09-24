@@ -19,4 +19,4 @@ dist/
 *.syso
 
 # Claude Mind memory (hook-created)
-.claude/mind*
+**/.claude/mind*
