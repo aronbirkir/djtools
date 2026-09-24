@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 // Exit codes. These are the tool's contract with any script wrapping it.

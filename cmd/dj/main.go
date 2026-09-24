@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/prune"
+	"github.com/aronbirkir/djtools/internal/prune"
 )
 
 func usage(w io.Writer) {
