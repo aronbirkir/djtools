@@ -142,7 +142,7 @@ The sidebar entry and screen title are both "Rekordbox Prune" (shortened in the 
 │          │ ⚠ 3 dead links · 2 case duplicates  [details]  │
 │          │ By folder:  House 120 (1.6 GB) · Techno 88 …    │
 │          │ Orphans  [filter……]                            │
-│          │   House/Old/track.mp3                     12 MB │
+│          │   House/Old/track.mp3                          │
 │          │   …                                            │
 │          │                        [Move 312 files to Trash]│
 │ ◐ theme  │ status line                                    │
@@ -155,8 +155,9 @@ The sidebar entry and screen title are both "Rekordbox Prune" (shortened in the 
   "details" expands the full lists (dead links, case dupes, stale paths, recently
   added, leftovers, symlinks).
 - The orphan list is virtualised with `widget.List`. Paths are shown relative to
-  Music, with sizes, and a substring filter narrows the list for display only. It
-  never changes what gets trashed.
+  Music. There are no per-file sizes because `Plan` records only totals. A
+  substring filter narrows the list for display only. It never changes what gets
+  trashed.
 
 ### States
 
@@ -210,8 +211,9 @@ icon comes from a `tools/genicon` copied from mp3renamer.
   - a forceable finding refuses without `force` and proceeds with it;
   - the report is written before any trash call (a fake `Runner` records order),
     and an unwritable report path means zero trash calls;
-  - touching the XML after `Scan` makes `Apply` refuse;
-  - `TrashAvailable` is not required by `Scan`.
+  - touching the XML after `Scan` makes `Apply` refuse.
+  `Scan` not calling `TrashAvailable` is a structural property, stated in its doc
+  comment. It can't be tested on a Mac, where `/usr/bin/trash` always exists.
 - The existing `internal/prune` and `internal/rekordbox` tests pass after the move,
   with `command_test.go` unchanged.
 - `cmd/djtools-app/prune_state_test.go`: Trash button enablement, checkbox
