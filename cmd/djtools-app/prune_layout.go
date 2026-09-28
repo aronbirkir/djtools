@@ -8,7 +8,6 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/text"
-	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
@@ -335,60 +334,48 @@ func (v *pruneView) layoutModal(gtx C, th *material.Theme) D {
 		return D{}
 	}
 	p := v.state.result.Plan
-	gtx.Constraints.Min = gtx.Constraints.Max
-	return layout.Stack{Alignment: layout.Center}.Layout(gtx,
-		layout.Expanded(func(gtx C) D {
-			return v.scrim.Layout(gtx, func(gtx C) D { return fill(gtx, withAlpha(rgb(0x000000), 0x99)) })
-		}),
-		layout.Stacked(func(gtx C) D {
-			width := min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(520)))
-			gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
-			return v.sink.Layout(gtx, func(gtx C) D {
-				return card(gtx, func(gtx C) D {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx C) D {
-							l := material.H6(th, fmt.Sprintf("Move %d files to the Trash?", len(p.Orphans)))
-							l.Font.Weight = font.SemiBold
-							return l.Layout(gtx)
-						}),
-						vspace(10),
-						layout.Rigid(label(th, fmt.Sprintf("%s will be moved out of %s.",
-							prune.HumanBytes(p.OrphanSize), p.MusicDir), pal.Fg)),
-						vspace(8),
-						layout.Rigid(label(th, "A report listing every file is saved first, to:\n"+v.reportPath, pal.Muted)),
-						layout.Rigid(func(gtx C) D {
-							if strings.TrimSpace(v.filter.Text()) == "" {
-								return D{}
-							}
-							return layout.Inset{Top: 8}.Layout(gtx, label(th, fmt.Sprintf(
-								"The filter only narrows the list; all %d files will be moved.", len(p.Orphans)), pal.Muted))
-						}),
-						layout.Rigid(func(gtx C) D {
-							if !v.state.force() {
-								return D{}
-							}
-							return layout.Inset{Top: 10}.Layout(gtx, label(th,
-								"You are overriding: "+prune.FindingMessages(v.state.result.Forceable()), pal.Error))
-						}),
-						vspace(18),
-						layout.Rigid(func(gtx C) D {
-							return layout.Flex{}.Layout(gtx,
-								layout.Flexed(1, layout.Spacer{}.Layout),
-								layout.Rigid(button(th, &v.cancelBtn, "Cancel", false)),
-								hspace(8),
-								layout.Rigid(func(gtx C) D {
-									b := material.Button(th, &v.confirmBtn, "Move to Trash")
-									styleButton(&b)
-									b.Background = pal.Error
-									return b.Layout(gtx)
-								}),
-							)
-						}),
-					)
-				})
-			})
-		}),
-	)
+	return modal(gtx, &v.scrim, &v.sink, func(gtx C) D {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx C) D {
+				l := material.H6(th, fmt.Sprintf("Move %d files to the Trash?", len(p.Orphans)))
+				l.Font.Weight = font.SemiBold
+				return l.Layout(gtx)
+			}),
+			vspace(10),
+			layout.Rigid(label(th, fmt.Sprintf("%s will be moved out of %s.",
+				prune.HumanBytes(p.OrphanSize), p.MusicDir), pal.Fg)),
+			vspace(8),
+			layout.Rigid(label(th, "A report listing every file is saved first, to:\n"+v.reportPath, pal.Muted)),
+			layout.Rigid(func(gtx C) D {
+				if strings.TrimSpace(v.filter.Text()) == "" {
+					return D{}
+				}
+				return layout.Inset{Top: 8}.Layout(gtx, label(th, fmt.Sprintf(
+					"The filter only narrows the list; all %d files will be moved.", len(p.Orphans)), pal.Muted))
+			}),
+			layout.Rigid(func(gtx C) D {
+				if !v.state.force() {
+					return D{}
+				}
+				return layout.Inset{Top: 10}.Layout(gtx, label(th,
+					"You are overriding: "+prune.FindingMessages(v.state.result.Forceable()), pal.Error))
+			}),
+			vspace(18),
+			layout.Rigid(func(gtx C) D {
+				return layout.Flex{}.Layout(gtx,
+					layout.Flexed(1, layout.Spacer{}.Layout),
+					layout.Rigid(button(th, &v.cancelBtn, "Cancel", false)),
+					hspace(8),
+					layout.Rigid(func(gtx C) D {
+						b := material.Button(th, &v.confirmBtn, "Move to Trash")
+						styleButton(&b)
+						b.Background = pal.Error
+						return b.Layout(gtx)
+					}),
+				)
+			}),
+		)
+	})
 }
 
 func centered(gtx C, th *material.Theme, msg string) D {

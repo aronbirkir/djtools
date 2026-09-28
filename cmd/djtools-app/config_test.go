@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/aronbirkir/djtools/internal/rename"
 )
 
 var testDefaults = Config{
@@ -87,6 +89,19 @@ func TestSaveConfigRoundTrip(t *testing.T) {
 	}
 	if got := loadConfigFrom(path, testDefaults); got != cfg {
 		t.Errorf("got %+v, want %+v", got, cfg)
+	}
+}
+
+func TestDefaultConfigRenameSettings(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.RenamePattern != rename.DefaultPattern {
+		t.Errorf("RenamePattern = %q, want %q", cfg.RenamePattern, rename.DefaultPattern)
+	}
+	if cfg.RenameFolder != "" {
+		t.Errorf("RenameFolder = %q, want empty", cfg.RenameFolder)
+	}
+	if cfg.Tool != toolPrune {
+		t.Errorf("Tool = %q, want %q", cfg.Tool, toolPrune)
 	}
 }
 

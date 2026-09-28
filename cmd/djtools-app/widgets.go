@@ -55,6 +55,24 @@ func divider(gtx C) D {
 	return D{Size: size}
 }
 
+// modal draws a confirmation dialog over the whole window. scrim covers
+// everything behind it and cancels when clicked; sink covers the dialog
+// itself so clicks on its body do not fall through to the scrim. Draw it
+// last, so it is on top for both painting and pointer input.
+func modal(gtx C, scrim, sink *widget.Clickable, body layout.Widget) D {
+	gtx.Constraints.Min = gtx.Constraints.Max
+	return layout.Stack{Alignment: layout.Center}.Layout(gtx,
+		layout.Expanded(func(gtx C) D {
+			return scrim.Layout(gtx, func(gtx C) D { return fill(gtx, withAlpha(rgb(0x000000), 0x99)) })
+		}),
+		layout.Stacked(func(gtx C) D {
+			width := min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(520)))
+			gtx.Constraints.Min.X, gtx.Constraints.Max.X = width, width
+			return sink.Layout(gtx, func(gtx C) D { return card(gtx, body) })
+		}),
+	)
+}
+
 func vspace(dp unit.Dp) layout.FlexChild {
 	return layout.Rigid(layout.Spacer{Height: dp}.Layout)
 }

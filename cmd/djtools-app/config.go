@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aronbirkir/djtools/internal/prune"
+	"github.com/aronbirkir/djtools/internal/rename"
 )
 
 // Config holds settings persisted between runs.
@@ -20,7 +21,16 @@ type Config struct {
 	MaxOrphanPct  float64   `json:"maxOrphanPct"`
 	KeepEmptyDirs bool      `json:"keepEmptyDirs"`
 	Theme         ThemeMode `json:"theme"`
+	RenameFolder  string    `json:"renameFolder"`
+	RenamePattern string    `json:"renamePattern"`
+	Tool          string    `json:"tool"`
 }
+
+// The sidebar's tools, as stored in Config.Tool.
+const (
+	toolPrune  = "prune"
+	toolRename = "rename"
+)
 
 // appDir is where the app keeps its settings and prune reports.
 func appDir() (string, error) {
@@ -64,11 +74,13 @@ func defaultConfig() Config {
 	home, _ := os.UserHomeDir()
 	configDir, _ := os.UserConfigDir()
 	return Config{
-		XMLPath:      defaultXMLPath(runtime.GOOS, home, configDir),
-		MusicDir:     filepath.Join(home, "Music", "rekordbox"),
-		Extensions:   prune.DefaultExtensions,
-		MaxOrphanPct: prune.DefaultMaxOrphanPct,
-		Theme:        ThemeSystem,
+		XMLPath:       defaultXMLPath(runtime.GOOS, home, configDir),
+		MusicDir:      filepath.Join(home, "Music", "rekordbox"),
+		Extensions:    prune.DefaultExtensions,
+		MaxOrphanPct:  prune.DefaultMaxOrphanPct,
+		Theme:         ThemeSystem,
+		RenamePattern: rename.DefaultPattern,
+		Tool:          toolPrune,
 	}
 }
 

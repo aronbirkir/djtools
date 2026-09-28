@@ -116,16 +116,22 @@ func (v *pruneView) inputs() pruneInputs {
 	}
 }
 
-func (v *pruneView) update(gtx C) {
-drain:
+// drain runs results that worker goroutines sent back. It is called every
+// frame even while another tool is showing, so a finished scan or trash run
+// is never left waiting.
+func (v *pruneView) drain() {
 	for {
 		select {
 		case f := <-v.done:
 			f()
 		default:
-			break drain
+			return
 		}
 	}
+}
+
+func (v *pruneView) update(gtx C) {
+	v.drain()
 
 	// gtx.Disabled() in layoutInputs only greys the inputs out: update reads
 	// events with the enabled root gtx, so a focused editor would still take
