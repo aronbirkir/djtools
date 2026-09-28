@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 var defaultExts = []string{".mp3", ".wav", ".aiff", ".flac", ".m4a"}

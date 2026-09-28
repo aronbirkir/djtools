@@ -5,6 +5,7 @@ CLI tools for maintaining a rekordbox-backed DJ collection. The library lives at
 
 ```
 dj prune       remove files from the music folder that are no longer in the rekordbox library
+dj rename      rename MP3 files from their ID3 tags
 ```
 
 Planned:
@@ -60,7 +61,8 @@ Flags:
 | `--keep-empty-dirs` | off | leave emptied directories in place |
 
 Exit codes: `0` success, `1` stopped (guard abort, declined, or usage error),
-`2` files were trashed but some batches failed.
+`2` files were trashed but some batches failed. If rekordbox.xml is rewritten
+while the confirmation prompt is open, the run stops with exit `1`, moving nothing.
 
 ### Platform support
 
@@ -108,6 +110,80 @@ pruning until you have decided.
 ```sh
 dj prune --report ~/DJ/prune-$(date +%Y%m%d-%H%M).txt
 ```
+
+## dj rename
+
+Renames the `.mp3` files directly inside a folder from their ID3 tags. It works the
+same way as MP3 Renamer: `track01.mp3` becomes `123 04A Daft Punk - One More Time.mp3`.
+
+```sh
+dj rename --dry-run ~/Downloads/new-music          # preview, change nothing
+dj rename ~/Downloads/new-music                    # preview, confirm, rename
+dj rename --pattern '{artist} - {title}' --yes .   # custom pattern, no prompt
+```
+
+| Token | ID3 frame | Notes |
+| --- | --- | --- |
+| `{artist}` | TPE1 | Title Case |
+| `{title}` | TIT2 | Title Case |
+| `{bpm}` | TBPM | |
+| `{key}` | TKEY | |
+
+`{bpm:03}` zero-pads the value to at least 3 characters. The default pattern is
+`{bpm:03} {key:03} {artist} - {title}`, and `.mp3` is added automatically.
+
+Differences from MP3 Renamer:
+
+- It never overwrites a file. A file is skipped and listed if its new name is shared
+  with another file, or is already taken in the folder.
+- On volumes without atomic no-overwrite renames, such as exFAT USB sticks, each file
+  is checked just before it is renamed.
+- `/` and `:` in tags are replaced with `-`, so `AC/DC` no longer breaks the rename.
+- A file missing a tag that the pattern uses is skipped, rather than being renamed to
+  ` - .mp3`.
+- Every occurrence of a token is filled. An unknown token such as `{album}` is an
+  error.
+
+Exit codes: `0` success, `1` stopped (declined, usage error or bad pattern), `2` some
+renames failed.
+
+Renaming files that rekordbox already knows makes them show as missing in rekordbox,
+and the next `dj prune` will treat the renamed files as orphans. Relocate them in
+rekordbox and re-export before pruning.
+
+## Desktop app
+
+`cmd/djtools-app` is a Gio desktop app with the same look as MP3 Renamer. Its first
+tool, **Rekordbox Prune**, is `dj prune` with a window: pick the export and the music
+folder, scan, read the findings and orphan list, and confirm. It runs the same checks
+as the CLI (the shared `prune.Scan` / `prune.Apply`), so nothing the CLI would refuse
+can be trashed from the app.
+
+The second tool, **MP3 Rename**, is `dj rename` with a window. It works the same way
+as MP3 Renamer: pick a folder, adjust the pattern, check the preview (with a Skipped
+tab listing what was left alone and why), and confirm. Its folder and pattern are
+remembered separately from the prune settings.
+
+```sh
+make run      # run from source
+make macos    # dist/macos/djtools.app (universal)
+```
+
+Differences from the CLI:
+
+- The defaults are rekordbox's own export location,
+  `~/Library/Pioneer/rekordbox/rekordbox.xml`, and `~/Music/rekordbox`. After the
+  first run it uses whatever you last chose.
+- An overridable finding (the CLI's `--force`) needs the "I understand" checkbox.
+  It is never offered when the music folder is `~/Music` or a folder containing it.
+- Every real run saves a report to
+  `~/Library/Application Support/djtools/reports/` before moving anything, and
+  won't move anything if the report can't be written.
+- To undo a run, copy its report to `/tmp/prune-report.txt` and follow
+  [Recovering a mistake](#recovering-a-mistake). The restore script currently
+  assumes the collection lives in `~/DJ` (music in `~/DJ/music`).
+- Settings live in `~/Library/Application Support/djtools/config.json`. Delete it
+  to reset.
 
 ## Design
 

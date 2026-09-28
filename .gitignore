@@ -12,3 +12,11 @@ build/
 # Local scratch: prune reports, sample XML exports pulled in for testing
 *.local.xml
 /reports/
+
+# App build output
+dist/
+*.app/
+*.syso
+
+# Claude Mind memory (hook-created)
+**/.claude/mind*

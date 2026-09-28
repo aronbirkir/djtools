@@ -3,7 +3,7 @@ package prune
 import (
 	"fmt"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 // Code identifies a finding independently of its wording, so callers can act on

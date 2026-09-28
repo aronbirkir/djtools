@@ -189,8 +189,16 @@ func TestHumanBytes(t *testing.T) {
 		{1500, "1.5 kB"},
 		{35_900_000_000, "35.9 GB"},
 	} {
-		if got := humanBytes(tt.in); got != tt.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tt.in, got, tt.want)
+		if got := HumanBytes(tt.in); got != tt.want {
+			t.Errorf("HumanBytes(%d) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestFoldersByOrphans(t *testing.T) {
+	p := &Plan{FolderOrphans: map[string]int{"House": 120, "Techno": 88, "Disco": 88}}
+	got := strings.Join(FoldersByOrphans(p), ",")
+	if got != "House,Disco,Techno" {
+		t.Errorf("FoldersByOrphans = %q", got)
 	}
 }

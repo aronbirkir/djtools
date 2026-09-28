@@ -1,6 +1,6 @@
 //go:build realdata
 
-// Run with: go test -tags realdata ./cmd/dj/internal/prune -run TestReal -v
+// Run with: go test -tags realdata ./internal/prune -run TestReal -v
 //
 // These tests assert invariants, not absolute counts. The collection is live:
 // tracks get added and trimmed between runs, and 7 arrived during this
@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 const (

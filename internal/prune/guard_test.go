@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 // healthyPlan is a plan that trips no guard, so each test can break exactly one

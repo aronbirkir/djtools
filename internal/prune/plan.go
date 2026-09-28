@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aronbirkir/djtools/cmd/dj/internal/rekordbox"
+	"github.com/aronbirkir/djtools/internal/rekordbox"
 )
 
 // Plan is the complete picture of one prune run, computed before anything is

@@ -3,6 +3,7 @@ package prune
 import (
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"text/tabwriter"
 )
@@ -14,6 +15,23 @@ import (
 // actually matter. The remainder collapses into one row carrying its own totals,
 // so nothing is concealed -- and --report still lists every path.
 const maxFolderRows = 25
+
+// FoldersByOrphans returns the plan's top-level folders with orphans, most
+// affected first, ties broken by name so output is stable.
+func FoldersByOrphans(p *Plan) []string {
+	folders := make([]string, 0, len(p.FolderOrphans))
+	for name := range p.FolderOrphans {
+		folders = append(folders, name)
+	}
+	sort.Slice(folders, func(i, j int) bool {
+		a, b := folders[i], folders[j]
+		if p.FolderOrphans[a] != p.FolderOrphans[b] {
+			return p.FolderOrphans[a] > p.FolderOrphans[b]
+		}
+		return a < b
+	})
+	return folders
+}
 
 // Summary writes the human-facing report: a per-folder table, totals, and every
 // guard finding. It is what the user reads before confirming.
@@ -34,18 +52,7 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 		return writeFindings(w, findings)
 	}
 
-	folders := make([]string, 0, len(p.FolderOrphans))
-	for name := range p.FolderOrphans {
-		folders = append(folders, name)
-	}
-	// Most affected first; ties broken by name so output is stable.
-	sort.Slice(folders, func(i, j int) bool {
-		a, b := folders[i], folders[j]
-		if p.FolderOrphans[a] != p.FolderOrphans[b] {
-			return p.FolderOrphans[a] > p.FolderOrphans[b]
-		}
-		return a < b
-	})
+	folders := FoldersByOrphans(p)
 
 	shown := folders
 	if len(shown) > maxFolderRows {
@@ -56,7 +63,7 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 	fmt.Fprintln(tw, "FOLDER\tORPHANS\tTOTAL\tRECLAIM")
 	for _, name := range shown {
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n",
-			name, p.FolderOrphans[name], p.FolderTotals[name], humanBytes(p.FolderBytes[name]))
+			name, p.FolderOrphans[name], p.FolderTotals[name], HumanBytes(p.FolderBytes[name]))
 	}
 	if rest := folders[len(shown):]; len(rest) > 0 {
 		var orphans, total int
@@ -67,9 +74,9 @@ func Summary(w io.Writer, p *Plan, findings []Finding) error {
 			bytes += p.FolderBytes[name]
 		}
 		fmt.Fprintf(tw, "(+%d more folders)\t%d\t%d\t%s\n",
-			len(rest), orphans, total, humanBytes(bytes))
+			len(rest), orphans, total, HumanBytes(bytes))
 	}
-	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%s\n", len(p.Orphans), p.OnDiskAudio(), humanBytes(p.OrphanSize))
+	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%s\n", len(p.Orphans), p.OnDiskAudio(), HumanBytes(p.OrphanSize))
 	if err := tw.Flush(); err != nil {
 		return err
 	}
@@ -194,9 +201,9 @@ func Report(w io.Writer, p *Plan) error {
 	return nil
 }
 
-// humanBytes formats a byte count in decimal units, matching how Finder reports
+// HumanBytes formats a byte count in decimal units, matching how Finder reports
 // disk space.
-func humanBytes(n int64) string {
+func HumanBytes(n int64) string {
 	const unit = 1000
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
@@ -209,4 +216,19 @@ func humanBytes(n int64) string {
 		}
 	}
 	return fmt.Sprintf("%.1f PB", value/unit)
+}
+
+// WriteReportFile writes Report to path, creating or truncating it. The file is
+// closed and checked before returning, so a nil error means the report is on
+// disk -- callers that trash afterwards depend on that.
+func WriteReportFile(path string, p *Plan) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := Report(f, p); err != nil {
+		return err
+	}
+	return f.Close()
 }
