@@ -97,7 +97,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	res := Apply(plan)
 	fmt.Fprintf(stdout, "\nRenamed %d of %d files.\n", res.Renamed, len(plan.Renames))
 	if res.Checked > 0 {
-		fmt.Fprintf(stdout, "%d of these were on a volume without atomic no-overwrite renames (e.g. exFAT); each was checked just before renaming.\n", res.Checked)
+		fmt.Fprintf(stdout, "%d were renamed after a check rather than atomically (e.g. on exFAT, or case-only renames on HFS+).\n", res.Checked)
 	}
 	for _, f := range res.Failures {
 		fmt.Fprintf(stderr, "dj rename: %s: %s\n", f.Name, f.Reason)

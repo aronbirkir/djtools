@@ -9,9 +9,11 @@ type ApplyResult struct {
 	Failures []Skip // Name is the old name
 }
 
-// Apply renames every file in the plan. One failure does not stop the rest,
-// and no rename ever replaces an existing file, even one created after the
-// plan was made.
+// Apply renames every file in the plan. One failure does not stop the rest.
+// On a volume with RENAME_EXCL support, each rename is atomic: the kernel
+// itself refuses to replace anything created at the new name after the plan
+// was made. Elsewhere, each target is instead checked for a collision just
+// before renaming (see checkedRename), which leaves a small window open.
 func Apply(p *RenamePlan) *ApplyResult {
 	res := &ApplyResult{}
 	for _, r := range p.Renames {

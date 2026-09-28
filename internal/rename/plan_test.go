@@ -410,3 +410,30 @@ func TestPlanCountsNormalizationOnlyDifferenceAsUnchanged(t *testing.T) {
 		t.Errorf("Unchanged %d, Renames %+v, Skipped %+v", plan.Unchanged, plan.Renames, plan.Skipped)
 	}
 }
+
+// TestPlanIgnoresDotFiles covers AppleDouble shadow files (exFAT, FAT, SMB
+// all give a file such as "a.mp3" a "._a.mp3" sidecar for the attributes the
+// filesystem can't store natively) and hidden files generally: they are not
+// real tracks, so Plan should act as though they are not there at all --
+// not renamed, not skipped, not counted as Unchanged.
+func TestPlanIgnoresDotFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeMP3(t, dir, "a.mp3", fullTags)
+	// Plain bytes, not a real AppleDouble file or valid ID3 -- Plan must
+	// never even try to read it.
+	if err := os.WriteFile(filepath.Join(dir, "._a.mp3"), []byte("not an appledouble file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := mustPlan(t, dir, DefaultPattern)
+
+	if len(plan.Renames) != 1 || plan.Renames[0].Old != "a.mp3" {
+		t.Errorf("Renames = %+v, want only a.mp3", plan.Renames)
+	}
+	if len(plan.Skipped) != 0 {
+		t.Errorf("Skipped = %+v, want none", plan.Skipped)
+	}
+	if plan.Unchanged != 0 {
+		t.Errorf("Unchanged = %d, want 0", plan.Unchanged)
+	}
+}

@@ -60,6 +60,14 @@ func Plan(dir string, p Pattern) (*RenamePlan, error) {
 		if !e.Type().IsRegular() || !strings.EqualFold(filepath.Ext(e.Name()), ".mp3") {
 			continue
 		}
+		// A dot-prefixed name is not a track: it's a hidden file, or on
+		// exFAT/FAT/SMB the AppleDouble sidecar macOS creates to hold the
+		// attributes those filesystems can't store natively (a "._x.mp3"
+		// next to "x.mp3"). Plan treats it as though it isn't there --
+		// never renamed, never skipped, never counted.
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
 		values, err := readTags(filepath.Join(dir, e.Name()))
 		if err != nil {
 			skip(e.Name(), "cannot read tags: %v", err)
