@@ -66,7 +66,8 @@ New dependencies: `github.com/bogem/id3v2/v2 v2.1.4` (as in mp3renamer), plus
   Renamer: `{bpm:03}` turns `95` into `095`.
 - Every occurrence of a token is replaced.
 - `ParsePattern` returns an error for an unknown token, an unclosed `{`, a non-numeric
-  or negative `N`, or a pattern with no tokens.
+  or negative `N`, a pattern with no tokens, or a literal `/` or `:` outside a token
+  (either would move a rename's target into another folder).
 - `.mp3` is appended to the expanded name.
 - The default pattern is `{bpm:03} {key:03} {artist} - {title}`.
 
@@ -93,15 +94,25 @@ type RenamePlan struct {
 - A file is skipped, with its reason, when:
   - its tags can't be read (`"cannot read tags: …"`);
   - a tag the pattern uses is empty (`"no {bpm} tag"`);
-  - its new name equals its current name, compared exactly (counted as `Unchanged`,
-    not skipped);
+  - its new name, once both are NFC-normalised, equals its current name (counted as
+    `Unchanged`, not skipped -- this also covers a purely Unicode-normalisation
+    difference, such as an NFD-named file whose tags produce the NFC form);
+  - its new name isn't a plain file name (`"… is not a plain file name"`), would be a
+    hidden file starting with `.` (`"new name would be a hidden file"`), or is longer
+    than 255 bytes (`"new name is too long (N bytes, the limit is 255)"`). In practice
+    `ParsePattern` and `clean` already rule most of this out; the checks are defence in
+    depth;
   - its new name collides, case-insensitively after NFC normalisation, with another
     file's new name. All files in that group are skipped (`"same new name as …"`);
-  - its new name matches an existing file in the folder that is a different file
-    according to `os.SameFile` (`"… already exists"`). This includes another file's
-    current name, so chains and swaps are skipped rather than reordered.
+  - its new name matches an existing file in the folder that isn't the same file
+    (`"… already exists"`). "Same file" means `os.SameFile` **and** the two base names
+    fold to the same value (case- and NFC-insensitively) -- so a hard link at the new
+    name, under an unrelated name, is treated as a different file and refused, not as a
+    case-only rename. This also covers another file's current name, so chains and
+    swaps are skipped rather than reordered.
 - A **case-only** rename (for example `daft punk - one.mp3` → `Daft Punk - One.mp3`)
-  is allowed. The existing file is the same file, so the rename isn't a collision.
+  is allowed. The existing file is the same file under the same name save for case, so
+  the rename isn't a collision.
 
 ### Apply
 
@@ -114,12 +125,23 @@ type ApplyResult struct {
 
 - `Apply` renames each entry through `renameNoReplace`. One failure doesn't stop the
   others.
-- On darwin, `renameNoReplace` uses `unix.RenamexNp(old, new, unix.RENAME_EXCL)`, so
-  the kernel refuses to overwrite a file created after the plan was made. If `old` and
-  `new` are the same file (a case-only rename), it uses `os.Rename`, because
-  RENAME_EXCL would refuse it.
-- On other platforms it checks with `Lstat` and then renames. The doc comment states
-  that this leaves a small gap between the check and the rename.
+- On darwin, `renameNoReplace` tries `unix.RenamexNp(old, new, unix.RENAME_EXCL)`
+  first, so the kernel refuses to overwrite a file created after the plan was made. On
+  APFS this itself succeeds for a case-only rename. On a volume where it instead
+  refuses that with `EEXIST` (HFS+, exFAT), `renameNoReplace` falls back to
+  `os.Rename`, but only once the same same-file-and-matching-base-name rule `Plan` uses
+  confirms the existing name really is `old` under a new case -- never for a hard link
+  under an unrelated name, which stays refused. If `RenamexNp` reports `ENOTSUP` or
+  `EINVAL`, the volume has no safe no-overwrite rename at all; that is reported as
+  `"this volume does not support safe (no-overwrite) renames"` rather than silently
+  falling back to a plain, replacing rename. (Verified against a real exFAT volume:
+  `RenamexNp`/`RENAME_EXCL` returns `ENOTSUP` even for an uncontested rename, so on
+  exFAT `dj rename` currently refuses every rename, not just genuine collisions --
+  accepted as the safe trade-off.) After any successful rename, the old name is
+  confirmed gone from the directory listing, to catch a rename that silently no-oped.
+- On other platforms it checks with `Lstat` (via the same occupant rule) and then
+  renames, with the same post-rename check. The doc comment states that the check and
+  the rename are not atomic, unlike the darwin path.
 
 ## `dj rename`
 
