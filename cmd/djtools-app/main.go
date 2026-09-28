@@ -109,6 +109,9 @@ func (ui *appUI) update(gtx C) {
 	for i, tool := range []string{toolPrune, toolRename} {
 		if ui.navButtons[i].Clicked(gtx) && ui.tool != tool {
 			ui.tool = tool
+			// Neither dialog belongs to a screen that is no longer showing.
+			ui.rename.state.cancelConfirm()
+			ui.prune.state.cancelConfirm()
 			ui.saveConfig()
 		}
 	}

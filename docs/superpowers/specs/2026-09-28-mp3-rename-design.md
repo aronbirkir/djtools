@@ -43,7 +43,7 @@ internal/rename/
   pattern.go      ParsePattern(s) (Pattern, error); Pattern.Expand(tags) string
   plan.go         Plan(dir string, p Pattern) (*RenamePlan, error)
   apply.go        Apply(plan) *ApplyResult
-  noreplace_darwin.go / noreplace_other.go   renameNoReplace(old, new) error
+  noreplace_darwin.go / noreplace_other.go   renameNoReplace(old, new) (checked bool, err error)
   command.go      Run(args, stdout, stderr, stdin) int   (dj rename)
 cmd/dj/main.go    + "rename" subcommand and usage line
 cmd/djtools-app/
@@ -84,8 +84,10 @@ type RenamePlan struct {
 }
 ```
 
-- `Plan` reads the top level of `dir` only. It ignores directories and anything that
-  isn't `.mp3` (case-insensitive).
+- `Plan` reads the top level of `dir` only. It ignores directories, anything that isn't
+  `.mp3` (case-insensitive), and any dot-prefixed name -- a hidden file, or on
+  exFAT/FAT/SMB the AppleDouble sidecar macOS creates for a file's extended attributes
+  (`._track.mp3` next to `track.mp3`). Those are not renamed, not skipped, not counted.
 - For each file it reads the ID3 tags with `id3v2.Open(path, {Parse: true})`, closing
   the file afterwards. Artist and title go through Title Case, using the same result
   as MP3 Renamer's `strings.Title(strings.ToLower(s))` but implemented without the
@@ -160,8 +162,8 @@ dj rename [--pattern P] [--dry-run] [--yes] <folder>
   `Rename N files? [y/N]`. Only `y` or `yes` renames, and `--yes` skips the prompt.
   Nothing is asked when there's nothing to rename.
 - After `Renamed N of M files.`, if any of those used `checkedRename` (`ApplyResult.
-  Checked > 0`), a line explains it: `"N of these were on a volume without atomic
-  no-overwrite renames (e.g. exFAT); each was checked just before renaming."`
+  Checked > 0`), a line explains it: `"N were renamed after a check rather than
+  atomically (e.g. on exFAT, or case-only renames on HFS+)."`
 - Exit codes are the same as prune's: `0` ok, `1` stopped (declined, usage error,
   invalid pattern, unreadable folder), `2` some renames failed.
 
@@ -174,18 +176,23 @@ dj rename [--pattern P] [--dry-run] [--yes] <folder>
   - A folder field with Browse (zenity directory picker) and Scan.
   - A pattern field. Pressing Enter rescans.
   - The token hint line.
-  - A preview list with current and new names side by side, and a second tab listing
-    skipped files with reasons.
+  - A preview list where each row shows old → new (a single string, not two columns),
+    and a second tab listing skipped files with reasons.
 - **Renaming:** the **Rename N files** button opens the same kind of confirm dialog as
   prune, with Cancel focused. Only Rename in the dialog runs `Apply`.
 - **Background work:** scan and apply run in goroutines, with results passed back
   through a `done` channel as in prune. Inputs are ignored while busy, and changing
   the folder or pattern discards the preview.
 - **Errors:** an invalid pattern shows its error under the pattern field and disables
-  Scan and Rename. After applying, the screen shows `Renamed N files` -- with
-  `" (this volume lacks atomic renames; each file was checked just before renaming)"`
-  appended when any of them used `checkedRename` -- lists any failures, and rescans
-  automatically.
+  Scan and Rename. After applying, the screen shows `Renamed N files.`, with a second
+  sentence appended when any of them used `checkedRename`: `"N were renamed after a
+  check rather than atomically (e.g. on exFAT, or case-only renames on HFS+)."` lists
+  any failures, and rescans automatically -- except when Apply itself failed (a panic,
+  recovered), which shows `"Renaming stopped part way: <err>. Rescan to see what is
+  left."` instead and does not auto-rescan, so the message stays up until the user
+  rescans themselves. If that automatic rescan is the one that fails, both stay on
+  screen: `"Renamed N files. Rescan failed: <err>"`. The result only survives that one
+  automatic rescan -- a further scan, including the user pressing Scan, clears it.
 - **Config:** `RenameFolder` (default empty) and `RenamePattern` (default above) are
   added to `config.json`, independent of the prune paths. A new `Tool` field stores the
   last selected tool.

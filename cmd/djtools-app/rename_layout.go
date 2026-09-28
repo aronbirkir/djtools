@@ -163,7 +163,7 @@ func (v *renameView) layoutModal(gtx C, th *material.Theme) D {
 				return l.Layout(gtx)
 			}),
 			vspace(10),
-			layout.Rigid(label(th, "In "+p.Dir+". Files are renamed in place; no existing file is ever overwritten.", pal.Fg)),
+			layout.Rigid(label(th, "In "+p.Dir+". Files are renamed in place and never replace an existing file.", pal.Fg)),
 			vspace(18),
 			layout.Rigid(func(gtx C) D {
 				return layout.Flex{}.Layout(gtx,

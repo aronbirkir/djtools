@@ -67,16 +67,9 @@ func (v *renameView) fillConfig(cfg *Config) {
 	cfg.RenamePattern = v.pattern.Text()
 }
 
-// drain runs results that worker goroutines sent back; see pruneView.drain.
+// drain runs results that worker goroutines sent back; see drainFuncs.
 func (v *renameView) drain() {
-	for {
-		select {
-		case f := <-v.done:
-			f()
-		default:
-			return
-		}
-	}
+	drainFuncs(v.done)
 }
 
 func (v *renameView) update(gtx C) {
@@ -188,10 +181,14 @@ func (v *renameView) apply() {
 		v.wg.Done()
 		v.done <- func() {
 			if err != nil {
-				v.state.applyDone(&rename.ApplyResult{Failures: []rename.Skip{{Name: "(all)", Reason: err.Error()}}})
-			} else {
-				v.state.applyDone(res)
+				// No automatic rescan here: applyPanicked's message tells
+				// the user to rescan themselves, which would be pointless
+				// if a rescan had already run and overwritten it before
+				// they could read it.
+				v.state.applyPanicked(err)
+				return
 			}
+			v.state.applyDone(res)
 			v.scan()
 		}
 		v.window.Invalidate()
@@ -231,12 +228,19 @@ func (v *renameView) status() (string, color.NRGBA) {
 	case renameApplying:
 		return "Renaming…", pal.Muted
 	case renameError:
+		// lastApplied can still be set here: applying succeeded, but the
+		// automatic rescan straight after it failed. Losing the apply
+		// result from the screen would make a successful rename look like
+		// it never happened.
+		if a := s.lastApplied; a != nil {
+			return fmt.Sprintf("Renamed %d files. Rescan failed: %v", a.Renamed, s.err), pal.Error
+		}
 		return s.err.Error(), pal.Error
 	}
 	if a := s.lastApplied; a != nil {
 		msg := fmt.Sprintf("Renamed %d files.", a.Renamed)
 		if a.Checked > 0 {
-			msg += " (this volume lacks atomic renames; each file was checked just before renaming)"
+			msg += fmt.Sprintf(" %d were renamed after a check rather than atomically (e.g. on exFAT, or case-only renames on HFS+).", a.Checked)
 		}
 		if len(a.Failures) == 0 {
 			return msg, pal.Success

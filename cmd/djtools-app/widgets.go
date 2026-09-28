@@ -47,6 +47,22 @@ func fill(gtx C, c color.NRGBA) D {
 	return D{Size: size}
 }
 
+// drainFuncs runs every func currently queued on ch, in order, without
+// blocking once it's empty. pruneView and renameView both use it to run
+// results a worker goroutine sent back on their own done channel; each is
+// drained every frame, including while the other tool is showing, so a
+// finished scan or apply run is never left waiting.
+func drainFuncs(ch chan func()) {
+	for {
+		select {
+		case f := <-ch:
+			f()
+		default:
+			return
+		}
+	}
+}
+
 // divider draws a 1dp horizontal line across the available width.
 func divider(gtx C) D {
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))

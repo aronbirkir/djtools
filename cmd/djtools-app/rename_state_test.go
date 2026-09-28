@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aronbirkir/djtools/internal/rename"
@@ -105,6 +106,77 @@ func TestRenameConfirmFlow(t *testing.T) {
 	s.startScan()
 	if s.lastApplied != res {
 		t.Error("rescan dropped the last result")
+	}
+}
+
+// TestRenameLastAppliedSurvivesOnlyTheAutomaticRescan pins down that the
+// result only stays on screen through the one rescan applyDone itself
+// triggers: any scan after that -- automatic or the user pressing Scan --
+// finds a plan from arbitrarily long ago and must not keep describing it.
+func TestRenameLastAppliedSurvivesOnlyTheAutomaticRescan(t *testing.T) {
+	s := scannedRename(planWith(2))
+	s.askConfirm()
+	s.startApply()
+	res := &rename.ApplyResult{Renamed: 2}
+	s.applyDone(res)
+
+	if !s.startScan() {
+		t.Fatal("the automatic rescan did not start")
+	}
+	if s.lastApplied != res {
+		t.Error("the automatic rescan should keep lastApplied")
+	}
+	s.scanDone(planWith(0), nil)
+
+	if !s.startScan() {
+		t.Fatal("the next scan did not start")
+	}
+	if s.lastApplied != nil {
+		t.Error("a scan after the automatic rescan should clear lastApplied")
+	}
+}
+
+// TestRenameManualScanClearsLastApplied covers pressing Scan (rather than
+// relying on the automatic rescan) right after applying: it must not show a
+// stale result next to a plan it has nothing to do with.
+func TestRenameManualScanClearsLastApplied(t *testing.T) {
+	s := scannedRename(planWith(2))
+	s.askConfirm()
+	s.startApply()
+	s.applyDone(&rename.ApplyResult{Renamed: 2})
+
+	// Simulate the user clicking Scan again before or instead of the
+	// automatic one by calling startScan twice.
+	s.startScan()
+	s.scanDone(planWith(0), nil)
+	s.startScan()
+
+	if s.lastApplied != nil {
+		t.Error("a manual scan should clear lastApplied")
+	}
+}
+
+func TestRenameApplyPanicked(t *testing.T) {
+	s := scannedRename(planWith(2))
+	s.askConfirm()
+	s.startApply()
+
+	s.applyPanicked(errors.New("boom"))
+
+	if s.phase != renameError {
+		t.Fatalf("phase = %v, want renameError", s.phase)
+	}
+	if s.err == nil || !strings.Contains(s.err.Error(), "Renaming stopped part way: boom") {
+		t.Errorf("err = %v, want it to mention stopping part way", s.err)
+	}
+	if !strings.Contains(s.err.Error(), "Rescan to see what is left.") {
+		t.Errorf("err = %v, want it to suggest rescanning", s.err)
+	}
+	if s.lastApplied != nil {
+		t.Errorf("lastApplied = %v, want nil after a panic", s.lastApplied)
+	}
+	if s.plan != nil {
+		t.Errorf("plan = %v, want nil after a panic", s.plan)
 	}
 }
 

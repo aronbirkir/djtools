@@ -116,18 +116,9 @@ func (v *pruneView) inputs() pruneInputs {
 	}
 }
 
-// drain runs results that worker goroutines sent back. It is called every
-// frame even while another tool is showing, so a finished scan or trash run
-// is never left waiting.
+// drain runs results that worker goroutines sent back; see drainFuncs.
 func (v *pruneView) drain() {
-	for {
-		select {
-		case f := <-v.done:
-			f()
-		default:
-			return
-		}
-	}
+	drainFuncs(v.done)
 }
 
 func (v *pruneView) update(gtx C) {

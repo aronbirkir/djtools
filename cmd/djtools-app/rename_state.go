@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/aronbirkir/djtools/internal/rename"
 )
@@ -27,8 +28,14 @@ type renameState struct {
 	plan       *rename.RenamePlan
 	err        error
 	// lastApplied survives the automatic rescan after renaming, so the
-	// outcome stays on screen next to the fresh preview.
-	lastApplied *rename.ApplyResult
+	// outcome stays on screen next to the fresh preview. keepNextScan makes
+	// that a one-shot: applyDone sets it, and the very next startScan
+	// consumes it and leaves lastApplied alone; any scan after that --
+	// including the user pressing Scan themselves -- finds it unset and
+	// clears lastApplied, since it would otherwise go on describing a run
+	// from arbitrarily long ago next to an unrelated plan.
+	lastApplied  *rename.ApplyResult
+	keepNextScan bool
 }
 
 func (s *renameState) busy() bool {
@@ -50,6 +57,7 @@ func (s *renameState) inputsChanged() {
 		return
 	}
 	s.plan, s.err, s.lastApplied = nil, nil, nil
+	s.keepNextScan = false
 	s.phase = renameIdle
 }
 
@@ -61,6 +69,17 @@ func (s *renameState) fail(err error) {
 	s.phase, s.err = renameError, err
 }
 
+// applyPanicked records that Apply itself failed catastrophically -- a panic,
+// recovered by safely -- rather than individual renames failing normally.
+// Unlike fail, it does not check busy: it exists specifically to leave the
+// applying phase behind once Apply has already returned. lastApplied is left
+// alone (untouched, so still whatever an earlier run left, if anything) since
+// there is no ApplyResult worth attaching to this run.
+func (s *renameState) applyPanicked(err error) {
+	s.plan = nil
+	s.phase, s.err = renameError, fmt.Errorf("Renaming stopped part way: %w. Rescan to see what is left.", err)
+}
+
 func (s *renameState) canScan() bool {
 	return !s.busy() && s.phase != renameConfirming && s.patternErr == nil
 }
@@ -68,6 +87,11 @@ func (s *renameState) canScan() bool {
 func (s *renameState) startScan() bool {
 	if !s.canScan() {
 		return false
+	}
+	if s.keepNextScan {
+		s.keepNextScan = false
+	} else {
+		s.lastApplied = nil
 	}
 	s.plan, s.err = nil, nil
 	s.phase = renameScanning
@@ -107,9 +131,11 @@ func (s *renameState) startApply() (*rename.RenamePlan, bool) {
 }
 
 // applyDone records the outcome. The preview is stale once files have moved,
-// so the view rescans straight away.
+// so the view rescans straight away; keepNextScan tells that one rescan to
+// leave lastApplied in place.
 func (s *renameState) applyDone(res *rename.ApplyResult) {
 	s.lastApplied = res
+	s.keepNextScan = true
 	s.plan = nil
 	s.phase = renameIdle
 }
