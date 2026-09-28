@@ -4,7 +4,9 @@ go 1.27.0
 
 require (
 	gioui.org v0.10.2
+	github.com/bogem/id3v2/v2 v2.1.4
 	github.com/ncruces/zenity v0.10.15
+	golang.org/x/text v0.42.0
 )
 
 require (
@@ -18,5 +20,4 @@ require (
 	golang.org/x/image v0.44.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
 )
