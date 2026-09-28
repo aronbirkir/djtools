@@ -17,6 +17,11 @@ func TestApplyRenames(t *testing.T) {
 	if res.Renamed != 1 || len(res.Failures) != 0 {
 		t.Fatalf("Apply = %+v", res)
 	}
+	// On this build machine's volume (APFS), the atomic RENAME_EXCL path is
+	// taken, so nothing here needed the checked fallback.
+	if res.Checked != 0 {
+		t.Errorf("Checked = %d, want 0 on a volume with atomic renames", res.Checked)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "123 04A Daft Punk - One More Time.mp3")); err != nil {
 		t.Errorf("new name missing: %v", err)
 	}
@@ -100,7 +105,7 @@ func TestRenameNoReplaceRefusesExistingDifferentFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := renameNoReplace(old, target)
+	_, err := renameNoReplace(old, target)
 
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("renameNoReplace = %v, want an already-exists error", err)
@@ -128,7 +133,7 @@ func TestRenameNoReplaceRefusesHardLinkUnderDifferentName(t *testing.T) {
 		t.Skipf("hard links unsupported here: %v", err)
 	}
 
-	err := renameNoReplace(a, hardlink)
+	_, err := renameNoReplace(a, hardlink)
 
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("renameNoReplace = %v, want an already-exists error", err)

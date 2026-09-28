@@ -235,6 +235,9 @@ func (v *renameView) status() (string, color.NRGBA) {
 	}
 	if a := s.lastApplied; a != nil {
 		msg := fmt.Sprintf("Renamed %d files.", a.Renamed)
+		if a.Checked > 0 {
+			msg += " (this volume lacks atomic renames; each file was checked just before renaming)"
+		}
 		if len(a.Failures) == 0 {
 			return msg, pal.Success
 		}

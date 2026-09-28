@@ -119,29 +119,34 @@ type RenamePlan struct {
 ```go
 type ApplyResult struct {
     Renamed  int
+    Checked  int    // of Renamed, how many used check-then-rename, not an atomic rename
     Failures []Skip // Name = old name, Reason = error text
 }
 ```
 
-- `Apply` renames each entry through `renameNoReplace`. One failure doesn't stop the
-  others.
+- `Apply` renames each entry through `renameNoReplace`, which reports whether that
+  rename used the atomic path or had to fall back to a check-then-rename. One failure
+  doesn't stop the others.
+- `checkedRename` (`noreplace.go`) is the shared check-then-rename fallback: it uses the
+  same same-file-and-matching-base-name rule `Plan`'s `occupant` uses to refuse an
+  existing different file (never for a hard link under an unrelated name, which is
+  always refused) or to allow a case-only rename, then calls `os.Rename` and confirms
+  the old name is gone from the directory listing, to catch a rename that silently
+  no-oped. This is not atomic: there is a small window between the check and the
+  rename in which a file created at the new name would be overwritten.
 - On darwin, `renameNoReplace` tries `unix.RenamexNp(old, new, unix.RENAME_EXCL)`
-  first, so the kernel refuses to overwrite a file created after the plan was made. On
-  APFS this itself succeeds for a case-only rename. On a volume where it instead
-  refuses that with `EEXIST` (HFS+, exFAT), `renameNoReplace` falls back to
-  `os.Rename`, but only once the same same-file-and-matching-base-name rule `Plan` uses
-  confirms the existing name really is `old` under a new case -- never for a hard link
-  under an unrelated name, which stays refused. If `RenamexNp` reports `ENOTSUP` or
-  `EINVAL`, the volume has no safe no-overwrite rename at all; that is reported as
-  `"this volume does not support safe (no-overwrite) renames"` rather than silently
-  falling back to a plain, replacing rename. (Verified against a real exFAT volume:
-  `RenamexNp`/`RENAME_EXCL` returns `ENOTSUP` even for an uncontested rename, so on
-  exFAT `dj rename` currently refuses every rename, not just genuine collisions --
-  accepted as the safe trade-off.) After any successful rename, the old name is
-  confirmed gone from the directory listing, to catch a rename that silently no-oped.
-- On other platforms it checks with `Lstat` (via the same occupant rule) and then
-  renames, with the same post-rename check. The doc comment states that the check and
-  the rename are not atomic, unlike the darwin path.
+  first, so on a volume that supports it the kernel refuses atomically, closing that
+  window: a file created after the plan was made can never be overwritten. On APFS this
+  itself succeeds for a case-only rename. On a volume that instead refuses that with
+  `EEXIST` (HFS+), or reports `ENOTSUP`/`EINVAL` because it has no such primitive at all
+  (exFAT, observed even for an otherwise uncontested rename with no real collision),
+  `renameNoReplace` falls back to `checkedRename`. (Verified against a real exFAT
+  volume: with the fallback, a normal rename and a case-only rename both succeed there,
+  and a genuine collision is still refused as `"… already exists"` -- confirmed both via
+  `go test -run TestExternalVolume` and a real `dj rename --yes` run against a mounted
+  exFAT image.)
+- On other platforms `renameNoReplace` always uses `checkedRename` -- there is no
+  atomic alternative to try first.
 
 ## `dj rename`
 
@@ -154,6 +159,9 @@ dj rename [--pattern P] [--dry-run] [--yes] <folder>
 - `--dry-run` stops there. Otherwise the command asks
   `Rename N files? [y/N]`. Only `y` or `yes` renames, and `--yes` skips the prompt.
   Nothing is asked when there's nothing to rename.
+- After `Renamed N of M files.`, if any of those used `checkedRename` (`ApplyResult.
+  Checked > 0`), a line explains it: `"N of these were on a volume without atomic
+  no-overwrite renames (e.g. exFAT); each was checked just before renaming."`
 - Exit codes are the same as prune's: `0` ok, `1` stopped (declined, usage error,
   invalid pattern, unreadable folder), `2` some renames failed.
 
@@ -174,8 +182,10 @@ dj rename [--pattern P] [--dry-run] [--yes] <folder>
   through a `done` channel as in prune. Inputs are ignored while busy, and changing
   the folder or pattern discards the preview.
 - **Errors:** an invalid pattern shows its error under the pattern field and disables
-  Scan and Rename. After applying, the screen shows `Renamed N files`, lists any
-  failures, and rescans automatically.
+  Scan and Rename. After applying, the screen shows `Renamed N files` -- with
+  `" (this volume lacks atomic renames; each file was checked just before renaming)"`
+  appended when any of them used `checkedRename` -- lists any failures, and rescans
+  automatically.
 - **Config:** `RenameFolder` (default empty) and `RenamePattern` (default above) are
   added to `config.json`, independent of the prune paths. A new `Tool` field stores the
   last selected tool.

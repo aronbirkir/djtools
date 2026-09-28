@@ -10,7 +10,7 @@ import (
 // TestExternalVolume exercises renameNoReplace against a real mounted
 // filesystem, gated behind RENAME_TEST_DIR since it needs an actual volume --
 // in particular exFAT, which unlike APFS has no atomic no-overwrite rename
-// primitive and so exercises the ENOTSUP/EINVAL and same-file-fallback paths
+// primitive and so exercises the ENOTSUP/EINVAL and checked-fallback paths
 // that a temp dir on the build machine's APFS volume cannot reach.
 //
 // To run it against a throwaway exFAT volume:
@@ -38,22 +38,14 @@ func TestExternalVolume(t *testing.T) {
 		}
 		newp := filepath.Join(dir, "new.mp3")
 
-		err := renameNoReplace(old, newp)
-		t.Logf("this volume's normal-rename result: err=%v", err)
+		checked, err := renameNoReplace(old, newp)
+		t.Logf("this volume's normal-rename result: checked=%v err=%v", checked, err)
+
+		// A volume with no RENAME_EXCL-equivalent (exFAT, observed on macOS)
+		// still succeeds here, via checkedRename's plain Lstat-then-rename;
+		// it just cannot do it atomically, so checked comes back true.
 		if err != nil {
-			// A volume with no RENAME_EXCL-equivalent (exFAT, observed on
-			// macOS) refuses every no-overwrite rename outright, even an
-			// uncontested one: renameNoReplace never falls back to a plain,
-			// replacing rename to make that work, since that would silently
-			// drop the no-overwrite guarantee. What matters here is that
-			// the failure leaves the file system untouched.
-			if _, serr := os.Stat(old); serr != nil {
-				t.Errorf("source vanished despite a reported failure: %v", serr)
-			}
-			if _, serr := os.Stat(newp); serr == nil {
-				t.Errorf("target exists despite a reported failure")
-			}
-			return
+			t.Fatalf("renameNoReplace: %v", err)
 		}
 		if _, err := os.Stat(newp); err != nil {
 			t.Errorf("new name missing: %v", err)
@@ -73,12 +65,12 @@ func TestExternalVolume(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err := renameNoReplace(old, target)
+		checked, err := renameNoReplace(old, target)
 
 		if err == nil {
 			t.Fatal("renameNoReplace succeeded, want a refusal")
 		}
-		t.Logf("this volume's refusal error: %v", err)
+		t.Logf("this volume's refusal: checked=%v err=%v", checked, err)
 		if body, rerr := os.ReadFile(target); rerr != nil || string(body) != "taken" {
 			t.Errorf("target was changed: %q, %v", body, rerr)
 		}
@@ -94,8 +86,8 @@ func TestExternalVolume(t *testing.T) {
 		}
 		newp := filepath.Join(dir, "LOWER.mp3")
 
-		err := renameNoReplace(old, newp)
-		t.Logf("this volume's case-only rename result: err=%v", err)
+		checked, err := renameNoReplace(old, newp)
+		t.Logf("this volume's case-only rename result: checked=%v err=%v", checked, err)
 
 		entries, rerr := os.ReadDir(dir)
 		if rerr != nil {
