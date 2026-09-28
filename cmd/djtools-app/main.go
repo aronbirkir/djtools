@@ -39,6 +39,9 @@ type appUI struct {
 	themeButtons [3]widget.Clickable
 	sysTheme     systemTheme
 	prune        *pruneView
+	rename       *renameView
+	tool         string
+	navButtons   [2]widget.Clickable
 }
 
 func run(window *app.Window) error {
@@ -54,17 +57,27 @@ func run(window *app.Window) error {
 		ui.themeMode = ThemeSystem
 	}
 	ui.prune = newPruneView(window, ui.cfg, home, ui.saveConfig)
+	ui.rename = newRenameView(window, ui.cfg, home, ui.saveConfig)
+	ui.tool = ui.cfg.Tool
+	if ui.tool != toolRename {
+		ui.tool = toolPrune
+	}
 	ui.sysTheme.watch(window)
 
 	for {
 		switch e := window.Event().(type) {
 		case app.DestroyEvent:
 			// Returning exits the process, which would stop prune.Apply
-			// between batches; let a trash run finish first.
+			// between batches or rename.Apply part way through; let any
+			// run finish first.
 			if ui.prune.state.phase == phaseTrashing {
 				log.Print("finishing the trash run before exiting")
 			}
+			if ui.rename.state.phase == renameApplying {
+				log.Print("finishing the rename run before exiting")
+			}
 			ui.prune.wg.Wait()
+			ui.rename.wg.Wait()
 			return e.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
@@ -78,7 +91,9 @@ func run(window *app.Window) error {
 
 func (ui *appUI) saveConfig() {
 	ui.prune.fillConfig(&ui.cfg)
+	ui.rename.fillConfig(&ui.cfg)
 	ui.cfg.Theme = ui.themeMode
+	ui.cfg.Tool = ui.tool
 	if err := saveConfig(ui.cfg); err != nil {
 		log.Printf("saving config: %v", err)
 	}
@@ -91,7 +106,21 @@ func (ui *appUI) update(gtx C) {
 			ui.saveConfig()
 		}
 	}
-	ui.prune.update(gtx)
+	for i, tool := range []string{toolPrune, toolRename} {
+		if ui.navButtons[i].Clicked(gtx) && ui.tool != tool {
+			ui.tool = tool
+			ui.saveConfig()
+		}
+	}
+	// Only the showing tool reads input (both listen for Esc, for one
+	// thing), but the hidden one still drains its workers' results.
+	if ui.tool == toolRename {
+		ui.prune.drain()
+		ui.rename.update(gtx)
+	} else {
+		ui.rename.drain()
+		ui.prune.update(gtx)
+	}
 }
 
 func (ui *appUI) Layout(gtx C, th *material.Theme) D {
@@ -101,11 +130,18 @@ func (ui *appUI) Layout(gtx C, th *material.Theme) D {
 		layout.Rigid(func(gtx C) D { return ui.layoutSidebar(gtx, th) }),
 		layout.Flexed(1, func(gtx C) D {
 			return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx C) D {
+				if ui.tool == toolRename {
+					return ui.rename.Layout(gtx, th)
+				}
 				return ui.prune.Layout(gtx, th)
 			})
 		}),
 	)
-	ui.prune.layoutModal(gtx, th)
+	if ui.tool == toolRename {
+		ui.rename.layoutModal(gtx, th)
+	} else {
+		ui.prune.layoutModal(gtx, th)
+	}
 	return D{Size: gtx.Constraints.Max}
 }
 
@@ -121,7 +157,13 @@ func (ui *appUI) layoutSidebar(gtx C, th *material.Theme) D {
 					l.Font.Weight = font.Bold
 					return layout.Inset{Top: 6, Left: 10, Bottom: 18}.Layout(gtx, l.Layout)
 				}),
-				layout.Rigid(func(gtx C) D { return navItem(gtx, th, "Rekordbox Prune", true) }),
+				layout.Rigid(func(gtx C) D {
+					return navItem(gtx, th, &ui.navButtons[0], "Rekordbox Prune", ui.tool == toolPrune)
+				}),
+				vspace(4),
+				layout.Rigid(func(gtx C) D {
+					return navItem(gtx, th, &ui.navButtons[1], "MP3 Rename", ui.tool == toolRename)
+				}),
 				layout.Flexed(1, layout.Spacer{}.Layout),
 				layout.Rigid(func(gtx C) D {
 					return segmented(gtx, th, ui.themeButtons[:], themeLabels(), themeIndex(ui.themeMode))
@@ -131,22 +173,23 @@ func (ui *appUI) layoutSidebar(gtx C, th *material.Theme) D {
 	})
 }
 
-// navItem is one tool in the sidebar. There is only one tool so far, so it is
-// always selected and not yet clickable.
-func navItem(gtx C, th *material.Theme, text string, selected bool) D {
-	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	bg := color.NRGBA{}
-	if selected {
-		bg = withAlpha(pal.Accent, 0x26)
-	}
-	return layout.Background{}.Layout(gtx, rounded(bg, 8), func(gtx C) D {
-		return layout.Inset{Top: 10, Bottom: 8, Left: 10, Right: 10}.Layout(gtx, func(gtx C) D {
-			l := material.Body1(th, text)
-			l.Font.Weight = font.SemiBold
-			if selected {
-				l.Color = pal.Accent
-			}
-			return l.Layout(gtx)
+// navItem is one tool in the sidebar.
+func navItem(gtx C, th *material.Theme, click *widget.Clickable, text string, selected bool) D {
+	return material.Clickable(gtx, click, func(gtx C) D {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		bg := color.NRGBA{}
+		if selected {
+			bg = withAlpha(pal.Accent, 0x26)
+		}
+		return layout.Background{}.Layout(gtx, rounded(bg, 8), func(gtx C) D {
+			return layout.Inset{Top: 10, Bottom: 8, Left: 10, Right: 10}.Layout(gtx, func(gtx C) D {
+				l := material.Body1(th, text)
+				l.Font.Weight = font.SemiBold
+				if selected {
+					l.Color = pal.Accent
+				}
+				return l.Layout(gtx)
+			})
 		})
 	})
 }
