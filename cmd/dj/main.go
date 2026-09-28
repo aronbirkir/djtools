@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/aronbirkir/djtools/internal/prune"
+	"github.com/aronbirkir/djtools/internal/rename"
 )
 
 func usage(w io.Writer) {
@@ -16,6 +17,7 @@ usage: dj <command> [flags]
 
 commands:
   prune   move audio files that are no longer in the rekordbox library to the Trash
+  rename  rename MP3 files from their ID3 tags
 
 Run "dj <command> --help" for a command's flags.
 `)
@@ -29,6 +31,8 @@ func main() {
 	switch os.Args[1] {
 	case "prune":
 		os.Exit(prune.Run(os.Args[2:], os.Stdout, os.Stderr, os.Stdin))
+	case "rename":
+		os.Exit(rename.Run(os.Args[2:], os.Stdout, os.Stderr, os.Stdin))
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 	default:
