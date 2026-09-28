@@ -145,3 +145,84 @@ func TestRunHelpExitsZero(t *testing.T) {
 		t.Errorf("usage should list the flags:\n%s", errOut.String())
 	}
 }
+
+func TestRunDoubleDashBeforeFolder(t *testing.T) {
+	dir := commandFixture(t)
+	var out, errOut strings.Builder
+	if code := Run([]string{"--dry-run", "--", dir}, &out, &errOut, strings.NewReader("")); code != 0 {
+		t.Fatalf("exit = %d, stderr:\n%s", code, errOut.String())
+	}
+	if !exists(filepath.Join(dir, "track01.mp3")) {
+		t.Error("dry run renamed a file")
+	}
+}
+
+func TestRunDoubleDashTreatsDashPrefixedFolderAsPositional(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "-x")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMP3(t, dir, "track01.mp3", fullTags)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+
+	var out, errOut strings.Builder
+	// "-x" looks like an unknown flag; after "--" it must be read as the
+	// folder argument instead.
+	if code := Run([]string{"--dry-run", "--", "-x"}, &out, &errOut, strings.NewReader("")); code != 0 {
+		t.Fatalf("exit = %d, stderr:\n%s", code, errOut.String())
+	}
+	if !exists(filepath.Join(dir, "track01.mp3")) {
+		t.Error("dry run renamed a file")
+	}
+}
+
+func TestRunDoubleDashProtectsSubsequentArgsFromReparsing(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "-x")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMP3(t, dir, "track01.mp3", fullTags)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+
+	var out, errOut strings.Builder
+	// A second word after "--" that looks like a flag ("--yes") must stay a
+	// literal second folder argument: reinterpreting it as the real --yes
+	// flag would silently skip the confirmation prompt and rename the file.
+	code := Run([]string{"--", "-x", "--yes"}, &out, &errOut, strings.NewReader(""))
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (two folders), stdout:\n%s", code, out.String())
+	}
+	if !exists(filepath.Join(dir, "track01.mp3")) {
+		t.Error("an erroring run renamed a file")
+	}
+}
+
+func TestRunFolderIsARegularFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "notadir.mp3")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut strings.Builder
+	if code := Run([]string{file}, &out, &errOut, strings.NewReader("")); code != 1 {
+		t.Errorf("exit = %d, want 1", code)
+	}
+}

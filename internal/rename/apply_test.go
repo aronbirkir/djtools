@@ -3,6 +3,7 @@ package rename
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,5 +83,57 @@ func TestApplyCaseOnlyRename(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != "Daft Punk - One.mp3" {
 		t.Errorf("directory holds %v, want only Daft Punk - One.mp3", entries)
+	}
+}
+
+// TestRenameNoReplaceRefusesExistingDifferentFile exercises renameNoReplace
+// directly, rather than through Plan/Apply, to pin down its own contract:
+// an unrelated existing file at newPath is always refused.
+func TestRenameNoReplaceRefusesExistingDifferentFile(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "old.mp3")
+	if err := os.WriteFile(old, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "new.mp3")
+	if err := os.WriteFile(target, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := renameNoReplace(old, target)
+
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("renameNoReplace = %v, want an already-exists error", err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("old file vanished: %v", err)
+	}
+	if body, err := os.ReadFile(target); err != nil || string(body) != "b" {
+		t.Errorf("target was changed: %q, %v", body, err)
+	}
+}
+
+// TestRenameNoReplaceRefusesHardLinkUnderDifferentName is the same
+// refusal, but for a target that is the very same file by inode -- a hard
+// link with an unrelated name is not a case-only rename, and must not take
+// the same-file fallback path.
+func TestRenameNoReplaceRefusesHardLinkUnderDifferentName(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.mp3")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hardlink := filepath.Join(dir, "b.mp3")
+	if err := os.Link(a, hardlink); err != nil {
+		t.Skipf("hard links unsupported here: %v", err)
+	}
+
+	err := renameNoReplace(a, hardlink)
+
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("renameNoReplace = %v, want an already-exists error", err)
+	}
+	if _, err := os.Stat(a); err != nil {
+		t.Errorf("a.mp3 vanished: %v", err)
 	}
 }

@@ -13,23 +13,36 @@ import (
 
 // renameNoReplace renames oldPath to newPath unless newPath already exists.
 //
-// RENAME_EXCL makes the kernel refuse atomically, so a file created between
-// planning and renaming is never replaced. A case-only rename is the one
-// exception: on a case-insensitive volume the "existing" target is the file
-// itself, which RENAME_EXCL would refuse, so that case uses a plain rename.
+// unix.RenamexNp with RENAME_EXCL is tried first, so the kernel refuses
+// atomically: a file created between planning and renaming is never
+// replaced. On APFS, RENAME_EXCL itself succeeds for a case-only rename --
+// the "existing" name at newPath is oldPath, just spelled differently. On a
+// volume where RENAME_EXCL rejects that as EEXIST instead (HFS+, exFAT),
+// this falls back to a plain os.Rename, but only once occupant confirms the
+// existing name really is oldPath under a new case, not a hard link with an
+// unrelated name, which stays refused. ENOTSUP or EINVAL means the volume
+// has no safe no-overwrite rename at all; rather than silently fall back to
+// a replacing rename in that case, it is reported as an error.
 func renameNoReplace(oldPath, newPath string) error {
-	exists, same, err := occupant(oldPath, newPath)
-	if err != nil {
-		return err
-	}
-	if exists && same {
-		return os.Rename(oldPath, newPath)
-	}
-	if err := unix.RenamexNp(oldPath, newPath, unix.RENAME_EXCL); err != nil {
-		if errors.Is(err, unix.EEXIST) {
-			return fmt.Errorf("%s already exists", filepath.Base(newPath))
-		}
+	err := unix.RenamexNp(oldPath, newPath, unix.RENAME_EXCL)
+	switch {
+	case err == nil:
+		return verifyRenamed(filepath.Dir(oldPath), filepath.Base(oldPath), filepath.Base(newPath))
+	case errors.Is(err, unix.ENOTSUP), errors.Is(err, unix.EINVAL):
+		return errors.New("this volume does not support safe (no-overwrite) renames")
+	case !errors.Is(err, unix.EEXIST):
 		return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: err}
 	}
-	return nil
+
+	exists, same, serr := occupant(oldPath, newPath)
+	if serr != nil {
+		return serr
+	}
+	if !exists || !same {
+		return fmt.Errorf("%s already exists", filepath.Base(newPath))
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return err
+	}
+	return verifyRenamed(filepath.Dir(oldPath), filepath.Base(oldPath), filepath.Base(newPath))
 }

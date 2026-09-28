@@ -54,6 +54,14 @@ func ParsePattern(s string) (Pattern, error) {
 	}
 	for i := 0; i < len(s); {
 		if s[i] != '{' {
+			// "/" would move a rename's target into another folder (or one
+			// that doesn't exist); ":" shows as "/" in the Finder, which
+			// hides the same problem. Neither is allowed in literal text --
+			// clean() strips both from tag values, but the pattern's own
+			// literal characters are not run through clean.
+			if s[i] == '/' || s[i] == ':' {
+				return Pattern{}, fmt.Errorf("%q is not allowed in a pattern: it would move files into another folder", string(s[i]))
+			}
 			lit.WriteByte(s[i])
 			i++
 			continue

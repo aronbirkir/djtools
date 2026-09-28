@@ -70,6 +70,23 @@ func TestTokensInOrderWithoutDuplicates(t *testing.T) {
 	}
 }
 
+func TestParsePatternRejectsPathSeparators(t *testing.T) {
+	// A literal "/" or ":" in the pattern text (outside a token) would move
+	// a rename's target into another folder, or (on some volumes) be shown
+	// as "/" by the Finder in a way that hides the real separator. Both are
+	// refused before any file is touched.
+	for pattern, wantInErr := range map[string]string{
+		"../{title}":       `"/" is not allowed in a pattern`,
+		"{artist}/{title}": `"/" is not allowed in a pattern`,
+		"{artist}:{title}": `":" is not allowed in a pattern`,
+	} {
+		_, err := ParsePattern(pattern)
+		if err == nil || !strings.Contains(err.Error(), wantInErr) {
+			t.Errorf("ParsePattern(%q) = %v, want an error containing %q", pattern, err, wantInErr)
+		}
+	}
+}
+
 func TestParsePatternErrors(t *testing.T) {
 	for pattern, wantInErr := range map[string]string{
 		"{album}":        "unknown token {album}",

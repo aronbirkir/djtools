@@ -20,6 +20,10 @@ type Rename struct{ Old, New string }
 // Skip is a file left alone, and why.
 type Skip struct{ Name, Reason string }
 
+// maxNameBytes is the file name length most filesystems this tool targets
+// enforce (APFS, HFS+, exFAT), in bytes of the encoded name.
+const maxNameBytes = 255
+
 // RenamePlan is everything one run would do, worked out before anything is
 // renamed.
 type RenamePlan struct {
@@ -66,8 +70,24 @@ func Plan(dir string, p Pattern) (*RenamePlan, error) {
 			continue
 		}
 		newName := p.Expand(values) + ".mp3"
-		if newName == e.Name() {
+		// A difference that is purely Unicode normalisation (an NFD-named
+		// file whose tags produce the NFC form, or vice versa) is not a
+		// real rename: it is the same text, and APFS itself treats the two
+		// forms as the same name for lookups.
+		if norm.NFC.String(newName) == norm.NFC.String(e.Name()) {
 			plan.Unchanged++
+			continue
+		}
+		if err := validName(newName); err != nil {
+			skip(e.Name(), "new name is not a plain file name")
+			continue
+		}
+		if strings.HasPrefix(newName, ".") {
+			skip(e.Name(), "new name would be a hidden file")
+			continue
+		}
+		if n := len(newName); n > maxNameBytes {
+			skip(e.Name(), "new name is too long (%d bytes, the limit is %d)", n, maxNameBytes)
 			continue
 		}
 		candidates = append(candidates, Rename{Old: e.Name(), New: newName})
@@ -113,6 +133,14 @@ func Plan(dir string, p Pattern) (*RenamePlan, error) {
 // occupant reports whether newPath exists and, if so, whether it is the same
 // file as oldPath -- as it is for a case-only rename on a case-insensitive
 // volume.
+//
+// os.SameFile alone is not enough: a hard link at newPath pointing at
+// oldPath's inode under a wholly different name is also "the same file" by
+// that test, but renaming oldPath onto it would silently make the link's own
+// name the survivor while discarding oldPath's name -- not what a case-only
+// rename does. "Same file" here additionally requires the two base names to
+// be equal once case- and normalisation-folded, i.e. this is a rename that
+// only changes case or Unicode form.
 func occupant(oldPath, newPath string) (exists, same bool, err error) {
 	ni, err := os.Lstat(newPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -125,11 +153,25 @@ func occupant(oldPath, newPath string) (exists, same bool, err error) {
 	if err != nil {
 		return true, false, err
 	}
-	return true, os.SameFile(oi, ni), nil
+	same = os.SameFile(oi, ni) && foldName(filepath.Base(oldPath)) == foldName(filepath.Base(newPath))
+	return true, same, nil
 }
 
 func foldName(name string) string {
 	return strings.ToLower(norm.NFC.String(name))
+}
+
+// validName reports whether name is safe to use as a file's own base name
+// within its current directory -- defence in depth. ParsePattern already
+// rejects "/" and ":" in a pattern's literal text, and clean strips both
+// from tag values, so in practice Plan cannot produce a name that fails
+// this check; it exists in case a future token or a bug in either of those
+// stops holding that invariant.
+func validName(name string) error {
+	if name == "." || name == ".." || filepath.Base(name) != name {
+		return fmt.Errorf("%q is not a plain file name", name)
+	}
+	return nil
 }
 
 func firstMissing(p Pattern, values map[string]string) string {
@@ -158,9 +200,22 @@ func readTags(path string) (map[string]string, error) {
 
 // clean makes a tag value safe inside a file name. "/" is a path separator and
 // ":" shows as "/" in the Finder, so an artist such as AC/DC would otherwise
-// point the rename into a folder that does not exist.
+// point the rename into a folder that does not exist. ID3v2.4 joins a
+// multi-value frame (for example two artists) with "\x00"; that is turned
+// into ", " before other control characters, which have no place in a file
+// name, are dropped.
 func clean(s string) string {
-	return strings.TrimSpace(strings.NewReplacer("/", "-", ":", "-").Replace(s))
+	s = strings.ReplaceAll(s, "\x00", ", ")
+	s = strings.NewReplacer("/", "-", ":", "-").Replace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // titleCase reproduces strings.Title(strings.ToLower(s)), which MP3 Renamer

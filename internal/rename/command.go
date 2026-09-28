@@ -30,10 +30,25 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		fs.PrintDefaults()
 	}
 
+	// "--" ends flag parsing for good: everything after it is a folder
+	// argument, never a flag, even one that looks like "--yes". Split it out
+	// up front, because the loop below re-parses each remaining chunk from
+	// scratch (to support flags after the folder) and would otherwise forget
+	// that "--" had already been seen and parse a later chunk as real flags.
+	head := args
+	var tail []string
+	for i, a := range args {
+		if a == "--" {
+			head = args[:i]
+			tail = args[i+1:]
+			break
+		}
+	}
+
 	// The flag package stops at the first non-flag, so parse again after the
 	// folder: "dj rename ~/Downloads --dry-run" must not rename anything.
 	var folders []string
-	for rest := args; ; {
+	for rest := head; ; {
 		if err := fs.Parse(rest); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return exitOK
@@ -46,6 +61,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		folders = append(folders, fs.Arg(0))
 		rest = fs.Args()[1:]
 	}
+	folders = append(folders, tail...)
 	if len(folders) != 1 {
 		fs.Usage()
 		return exitStopped
