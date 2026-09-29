@@ -29,7 +29,7 @@ const (
 
 const restoreHint = "Finder's Put Back does not work for files moved this way. To restore, copy this " +
 	"run's report to /tmp/prune-report.txt and run tools/restore-from-trash.py from the djtools repo; " +
-	"it currently assumes the collection lives in ~/DJ."
+	"set DJ and MUSIC at the top of the script to your collection folder first."
 
 // pruneView is the Rekordbox Prune screen: its widgets, plus the pruneState
 // that decides what they may do.
