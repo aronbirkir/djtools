@@ -1,7 +1,8 @@
 # djtools
 
-CLI tools for maintaining a rekordbox-backed DJ collection. The library lives at
-`/Users/aron/DJ`; this repo holds only code.
+CLI tools for maintaining a rekordbox-backed DJ collection. The examples assume a
+collection folder holding `rekordbox.xml` and a `music/` folder; this repo holds only
+code.
 
 ```
 dj prune       remove files from the music folder that are no longer in the rekordbox library
@@ -38,7 +39,7 @@ or call the binary by its full path. Then run from the collection directory, so 
 default `--xml` and `--music` values resolve:
 
 ```sh
-cd ~/DJ
+cd /path/to/collection
 dj prune --dry-run                        # scan and report, change nothing
 dj prune --dry-run --report /tmp/p.txt    # plus full lists to grep
 dj prune --dry-run --list                 # every orphan path, to eyeball or grep
@@ -75,8 +76,8 @@ rather than shipped unverified.
 ### Re-running after trimming more tracks
 
 1. Remove tracks from the rekordbox library.
-2. Export the collection to `~/DJ/rekordbox.xml`.
-3. `cd ~/DJ && dj prune`.
+2. Export the collection to `rekordbox.xml` in your collection folder.
+3. `cd /path/to/collection && dj prune`.
 
 The tool holds no state between runs, so it is safe to run as often as you like.
 Every run recomputes from the current XML and the current disk. If a run fails
@@ -108,7 +109,7 @@ pruning until you have decided.
 **Save a report every run.** `--report` is what makes restoration precise:
 
 ```sh
-dj prune --report ~/DJ/prune-$(date +%Y%m%d-%H%M).txt
+dj prune --report prune-$(date +%Y%m%d-%H%M).txt
 ```
 
 ## dj rename
@@ -181,7 +182,8 @@ Differences from the CLI:
   won't move anything if the report can't be written.
 - To undo a run, copy its report to `/tmp/prune-report.txt` and follow
   [Recovering a mistake](#recovering-a-mistake). The restore script currently
-  assumes the collection lives in `~/DJ` (music in `~/DJ/music`).
+  has its collection paths hard-coded; set `DJ` and `MUSIC` at the top of
+  `tools/restore-from-trash.py` to your collection folder first.
 - Settings live in `~/Library/Application Support/djtools/config.json`. Delete it
   to reset.
 
