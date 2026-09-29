@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 
 	"gioui.org/font"
 	"gioui.org/layout"
+	"gioui.org/unit"
 	"gioui.org/widget/material"
 
 	"github.com/aronbirkir/djtools/internal/rename"
@@ -125,6 +128,15 @@ func (v *renameView) layoutResults(gtx C, th *material.Theme) D {
 				)
 			}),
 			vspace(12),
+			layout.Rigid(func(gtx C) D {
+				left, right := "Current name", "New name"
+				if v.tab == tabSkipped {
+					left, right = "File", "Reason"
+				}
+				return layout.Inset{Left: 10, Right: 10, Bottom: 8}.Layout(gtx, func(gtx C) D {
+					return columnsRow(gtx, th, fieldLabel(th, left), fieldLabel(th, right), false)
+				})
+			}),
 			layout.Rigid(divider),
 			layout.Flexed(1, func(gtx C) D { return v.layoutList(gtx, th, p) }),
 		)
@@ -138,7 +150,9 @@ func (v *renameView) layoutList(gtx C, th *material.Theme, p *rename.RenamePlan)
 		}
 		return material.List(th, &v.list).Layout(gtx, len(p.Skipped), func(gtx C, i int) D {
 			s := p.Skipped[i]
-			return listRow(gtx, th, i, s.Name+"  —  "+s.Reason, pal.Fg, 1)
+			return stripedRow(gtx, i, func(gtx C) D {
+				return columnsRow(gtx, th, cell(th, s.Name, pal.Fg), cell(th, s.Reason, pal.Muted), false)
+			})
 		})
 	}
 	if len(p.Renames) == 0 {
@@ -146,7 +160,52 @@ func (v *renameView) layoutList(gtx C, th *material.Theme, p *rename.RenamePlan)
 	}
 	return material.List(th, &v.list).Layout(gtx, len(p.Renames), func(gtx C, i int) D {
 		r := p.Renames[i]
-		return listRow(gtx, th, i, r.Old+"   →   "+r.New, pal.Fg, 1)
+		return stripedRow(gtx, i, func(gtx C) D {
+			return columnsRow(gtx, th, cell(th, r.Old, pal.Muted), cell(th, r.New, pal.Fg), true)
+		})
+	})
+}
+
+// columnsRow lays out two equal-width columns, as MP3 Renamer did, so long
+// names line up and are cut off within their own column. With arrow set, a
+// narrow "→" column sits between them; otherwise an empty one of the same
+// width keeps headings aligned with rows.
+func columnsRow(gtx C, th *material.Theme, left, right layout.Widget, arrow bool) D {
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Flexed(1, left),
+		layout.Rigid(func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(36))
+			gtx.Constraints.Max.X = gtx.Constraints.Min.X
+			if !arrow {
+				return D{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+			}
+			return layout.Center.Layout(gtx, label(th, "→", pal.Accent))
+		}),
+		layout.Flexed(1, right),
+	)
+}
+
+// cell is one column's text, kept to a single line.
+func cell(th *material.Theme, s string, c color.NRGBA) layout.Widget {
+	return func(gtx C) D {
+		l := material.Body2(th, s)
+		l.Color = c
+		l.MaxLines = 1
+		return l.Layout(gtx)
+	}
+}
+
+// stripedRow draws a list row with alternating backgrounds, like listRow.
+func stripedRow(gtx C, i int, w layout.Widget) D {
+	bg := pal.Surface
+	if i%2 == 1 {
+		bg = pal.Surface2
+	}
+	return layout.Background{}.Layout(gtx, rounded(bg, 6), func(gtx C) D {
+		return layout.Inset{Top: 7, Bottom: 7, Left: 10, Right: 10}.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return w(gtx)
+		})
 	})
 }
 
