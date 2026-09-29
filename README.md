@@ -135,6 +135,7 @@ dj rename --pattern '{artist} - {title}' --yes .   # custom pattern, no prompt
 
 Differences from MP3 Renamer:
 
+- Title Case no longer capitalises after an apostrophe: `It's`, not `It'S`.
 - It never overwrites a file. A file is skipped and listed if its new name is shared
   with another file, or is already taken in the folder.
 - On volumes without atomic no-overwrite renames, such as exFAT USB sticks, each file
