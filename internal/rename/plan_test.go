@@ -99,15 +99,18 @@ func TestPlanRenamesFromTags(t *testing.T) {
 	}
 }
 
-func TestTitleCaseMatchesMP3Renamer(t *testing.T) {
-	// strings.Title's word boundaries, including its apostrophe quirk, so
-	// names come out exactly as MP3 Renamer made them.
+func TestTitleCase(t *testing.T) {
+	// strings.Title's word boundaries, as MP3 Renamer used, except that an
+	// apostrophe does not start a new word.
 	for in, want := range map[string]string{
-		"DAFT PUNK":     "Daft Punk",
-		"one more time": "One More Time",
-		"don't stop":    "Don'T Stop",
-		"ac/dc":         "Ac/Dc",
-		"sigur rós":     "Sigur Rós",
+		"DAFT PUNK":                "Daft Punk",
+		"one more time":            "One More Time",
+		"don't stop":               "Don't Stop",
+		"i swear, it's a daydream": "I Swear, It's A Daydream",
+		"that’s real":              "That’s Real",
+		"'til dawn":                "'Til Dawn",
+		"ac/dc":                    "Ac/Dc",
+		"sigur rós":                "Sigur Rós",
 	} {
 		if got := titleCase(in); got != want {
 			t.Errorf("titleCase(%q) = %q, want %q", in, got, want)

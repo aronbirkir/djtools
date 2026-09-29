@@ -226,9 +226,10 @@ func clean(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// titleCase reproduces strings.Title(strings.ToLower(s)), which MP3 Renamer
-// used, without the deprecated function: names must come out as they always
-// have, quirks included ("don't" becomes "Don'T").
+// titleCase follows strings.Title(strings.ToLower(s)), which MP3 Renamer
+// used, with one fix: an apostrophe does not start a new word, so "it's"
+// becomes "It's" rather than MP3 Renamer's "It'S". An apostrophe is simply
+// skipped when deciding boundaries, which keeps "'til" as "'Til".
 func titleCase(s string) string {
 	var b strings.Builder
 	prev := ' '
@@ -238,7 +239,9 @@ func titleCase(s string) string {
 		} else {
 			b.WriteRune(r)
 		}
-		prev = r
+		if r != '\'' {
+			prev = r
+		}
 	}
 	return b.String()
 }

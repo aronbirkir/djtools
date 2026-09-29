@@ -31,6 +31,7 @@ renames, and any change to rekordbox.
 
 | MP3 Renamer | djtools Rename |
 | --- | --- |
+| Title Case capitalises after an apostrophe (`It'S`, `Don'T`) | An apostrophe doesn't start a new word (`It's`, `Don't`) |
 | `os.Rename` silently overwrites when two files map to one name, or when the new name already exists | Never overwrites; such files are skipped and listed |
 | `/` in a tag (e.g. `AC/DC`) makes the rename fail | `/` and `:` in tag values are replaced with `-` |
 | A file with no tags becomes ` - .mp3` | A file with an empty tag that the pattern uses is skipped and listed |
@@ -91,7 +92,8 @@ type RenamePlan struct {
 - For each file it reads the ID3 tags with `id3v2.Open(path, {Parse: true})`, closing
   the file afterwards. Artist and title go through Title Case, using the same result
   as MP3 Renamer's `strings.Title(strings.ToLower(s))` but implemented without the
-  deprecated function. Then `/` and `:` in every value are replaced with `-`, and
+  deprecated function, and with one fix: an apostrophe doesn't start a new word
+  (`It's`, not `It'S`). Then `/` and `:` in every value are replaced with `-`, and
   surrounding whitespace is trimmed.
 - A file is skipped, with its reason, when:
   - its tags can't be read (`"cannot read tags: …"`);
